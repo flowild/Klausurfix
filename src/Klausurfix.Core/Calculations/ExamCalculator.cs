@@ -163,6 +163,8 @@ public static class ExamCalculator
 
         // Deduction
         decimal deduction = CalculateDeduction(fq, profile.DeductionTiers, profile.MaxDeduction);
+        var maximumDeduction = profile.DeductionTiers.Select(t => t.Deduction).DefaultIfEmpty(0m).Max();
+        if (profile.MaxDeduction.HasValue) maximumDeduction = Math.Min(maximumDeduction, profile.MaxDeduction.Value);
 
         // Final grade
         decimal? deductionPoints = null;
@@ -192,6 +194,7 @@ public static class ExamCalculator
             ErrorCount = entry.ErrorCount,
             ErrorQuotient = fq,
             Deduction = deduction,
+            IsMaximumDeduction = maximumDeduction > 0 && deduction == maximumDeduction,
             DeductionPoints = deductionPoints,
             AdjustedPoints = adjustedPoints,
             FinalGrade = finalGrade,

@@ -6,6 +6,24 @@ using Xunit;
 
 public class ExamCalculatorTests
 {
+    [Fact]
+    public void MaximumDeduction_IsTrueOnlyForCompleteResultsAtTheConfiguredMaximum()
+    {
+        var exam = new Exam { Tasks = new() { new TaskDefinition(1, "A", 100m) },
+            GradingProfileSnapshot = GradingProfile.BeruflichesGymnasium() };
+        var entry = new ExamStudentEntry { TaskPoints = new() { [1] = 80m }, WordCount = 10000, ErrorCount = 599 };
+        Assert.False(ExamCalculator.CalculateStudentEntry(entry, exam).IsMaximumDeduction);
+        Assert.True(ExamCalculator.CalculateStudentEntry(entry with { ErrorCount = 600 }, exam).IsMaximumDeduction);
+        Assert.False(ExamCalculator.CalculateStudentEntry(entry with { ErrorCount = 600, WordCount = 0 }, exam).IsMaximumDeduction);
+        Assert.False(ExamCalculator.CalculateStudentEntry(entry with { ErrorCount = 600, TaskPoints = new() }, exam).IsMaximumDeduction);
+        var capped = exam with { GradingProfileSnapshot = exam.GradingProfileSnapshot with { MaxDeduction = 1m } };
+        Assert.True(ExamCalculator.CalculateStudentEntry(entry with { ErrorCount = 300 }, capped).IsMaximumDeduction);
+        var noRules = exam with { GradingProfileSnapshot = exam.GradingProfileSnapshot with { DeductionTiers = new() } };
+        Assert.False(ExamCalculator.CalculateStudentEntry(entry with { ErrorCount = 600 }, noRules).IsMaximumDeduction);
+        var percent = exam with { GradingProfileSnapshot = GradingProfile.FachschuleSozialwesen() };
+        Assert.True(ExamCalculator.CalculateStudentEntry(entry with { ErrorCount = 600 }, percent).IsMaximumDeduction);
+    }
+
     [Theory]
     [InlineData(299, 0)]
     [InlineData(300, 1)]

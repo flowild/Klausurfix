@@ -1,6 +1,7 @@
 import { api } from "./api.js";
 import { registerHello, unlockHello } from "./hello.js";
 import { createCoverSheetEditor } from "./cover-sheet.js";
+import { showHamster, hideHamster } from "./hamster.js";
 
 // Global App State
 const state = {
@@ -90,6 +91,7 @@ for (const id of ["matrixCoverSheetBtn", "auswertungCoverSheetBtn"]) {
 
 // Router & View Switcher
 export function switchView(viewName, historyMode = "push") {
+  if (viewName !== "eingabetabelle") hideHamster();
   if (viewName !== "eingabetabelle" && coverSheetOffer.open) coverSheetOffer.close();
   const sensitiveView = viewName === "setup" || viewName === "unlock" || viewName === "stopped";
   const route = { klausurfix: true, view: viewName, examId: ["eingabetabelle", "auswertung"].includes(viewName) ? state.currentExamId : null,
@@ -1162,7 +1164,7 @@ function renderMatrixTable(exam, entries) {
           document.getElementById("saveBadge").textContent = "Eingabe prüfen";
           return;
         }
-        recalculateRow(tr, exam, entries[rowIdx]);
+        recalculateRow(tr, exam, entries[rowIdx], true);
         triggerAutoSave();
       });
 
@@ -1208,13 +1210,17 @@ function collectRowData(tr, exam, entry) {
   return true;
 }
 
-async function recalculateRow(tr, exam, entry) {
+async function recalculateRow(tr, exam, entry, fromUserInput = false) {
   const revision = (Number(tr.dataset.revision) || 0) + 1;
   tr.dataset.revision = revision;
   try {
     // The same calculator is used by the summary and exports.
     const result = await api.previewExamEntry(exam.id, entry);
     if (Number(tr.dataset.revision) !== revision || !tr.isConnected) return;
+    const maximumDeduction = result.isMaximumDeduction === true;
+    if (fromUserInput && !exam.isArchived && state.isUnlocked && state.currentView === "eingabetabelle" &&
+        state.currentExamId === exam.id && maximumDeduction && tr.dataset.maximumDeduction !== "true") showHamster();
+    tr.dataset.maximumDeduction = String(maximumDeduction);
     tr.querySelector(".row-total-pts").textContent = result.adjustedPoints == null ? formatNumber(result.rawPoints, 1) :
       `${formatNumber(result.rawPoints, 1)} → ${formatNumber(result.adjustedPoints, 2)}`;
     tr.querySelector(".row-pct").textContent = result.percentage == null ? "-" : `${formatNumber(result.percentage, 1)}%`;

@@ -19,6 +19,7 @@ public record ExamCalculationResult
     public decimal? ErrorQuotient { get; init; }
 
     public decimal Deduction { get; init; } = 0.0m;
+    public bool IsMaximumDeduction { get; init; }
     public decimal? DeductionPoints { get; init; }
     public decimal? AdjustedPoints { get; init; }
 
