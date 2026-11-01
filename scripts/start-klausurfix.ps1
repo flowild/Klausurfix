@@ -3,8 +3,8 @@ param([switch]$NoBrowser)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $projectPath = Join-Path $projectRoot 'src\Klausurfix.Web\Klausurfix.Web.csproj'
-$appUrl = 'http://127.0.0.1:5000/'
-$healthUrl = $appUrl + 'api/health'
+$appUrl = 'http://localhost:5000/'
+$healthUrl = 'http://127.0.0.1:5000/api/health'
 $backend = $null
 $serviceReady = $false
 

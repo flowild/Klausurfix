@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Security.Cryptography;
+using Fido2NetLib;
 using Klausurfix.Core.Calculations;
 using Klausurfix.Core.Models;
 using Klausurfix.Infrastructure.Backup;
@@ -27,6 +29,7 @@ builder.Services.Configure<JsonOptions>(options =>
 builder.Services.AddSingleton<ILocalKeyProtector, UserKeyProtector>();
 builder.Services.AddSingleton<KeyManager>();
 builder.Services.AddSingleton<LocalSessions>();
+builder.Services.AddSingleton<HelloCeremonies>();
 builder.Services.AddSingleton<DatabaseContext>();
 builder.Services.AddSingleton<BackupService>();
 builder.Services.AddSingleton<CleanupService>();
@@ -82,7 +85,8 @@ app.Use(async (context, next) =>
     var path = context.Request.Path;
     bool isPublic = path == "/api/health" || path == "/api/setup/status" || path == "/api/setup/generate-recovery-key" ||
         path == "/api/setup/init" || path == "/api/auth/unlock-pin" ||
-        path == "/api/auth/unlock-recovery" || path == "/api/auth/unlock-hello";
+        path == "/api/auth/unlock-recovery" || path == "/api/auth/unlock-hello" ||
+        path == "/api/auth/hello/unlock/options" || path == "/api/auth/hello/unlock/complete";
     if (path.StartsWithSegments("/api") && !isPublic)
     {
         var keyManager = context.RequestServices.GetRequiredService<KeyManager>();
@@ -128,7 +132,8 @@ app.MapGet("/api/setup/status", (HttpContext context, KeyManager km, LocalSessio
     {
         isInitialized = km.IsInitialized,
         isUnlocked = km.IsUnlocked && sessions.IsValid(context),
-        isHelloRegistered = false,
+        isHelloRegistered = km.IsHelloRegistered,
+        isHelloAvailable = true,
         inactivityTimeoutMinutes = km.InactivityTimeoutMinutes
     });
 });
@@ -210,6 +215,90 @@ app.MapPost("/api/auth/unlock-recovery", (RecoveryUnlockRequest req, HttpContext
 app.MapPost("/api/auth/unlock-hello", () => Results.Problem(
     "Windows Hello ist derzeit nicht verfügbar. Bitte verwenden Sie die App-PIN.", statusCode: 501));
 
+// WebAuthn registration and authentication use a local platform authenticator.
+{
+    const string helloCookie = "klausurfix_hello_attempt";
+    static string SessionBinding(HttpContext context) =>
+        context.Request.Cookies[LocalSessions.CookieName] ?? throw new InvalidOperationException("Sitzung abgelaufen.");
+    static bool CorrectHelloOrigin(HttpContext context) =>
+        context.Request.Scheme == "http" && context.Request.Host.Value == "localhost:5000";
+
+    app.MapPost("/api/auth/hello/register/options", (PinUnlockRequest request, HttpContext context, KeyManager km, HelloCeremonies hello) =>
+    {
+        if (!CorrectHelloOrigin(context)) return Results.BadRequest(new { error = "Bitte Klausurfix über http://localhost:5000 öffnen." });
+        var (success, message, _) = km.UnlockWithPin(request.Pin ?? "");
+        if (!success) return Results.BadRequest(new { error = message });
+        try
+        {
+            var (token, options) = hello.BeginRegistration(SessionBinding(context));
+            return Results.Ok(new { token, options = JsonDocument.Parse(options.ToJson()).RootElement.Clone() });
+        }
+        catch { return Results.BadRequest(new { error = "Die Einrichtung konnte nicht gestartet werden." }); }
+    });
+
+    app.MapPost("/api/auth/hello/register/credential", async (HelloRegistrationRequest request, HttpContext context, HelloCeremonies hello) =>
+    {
+        if (!CorrectHelloOrigin(context)) return Results.BadRequest(new { error = "Ungültige Adresse." });
+        try
+        {
+            var (token, options, salt) = await hello.CompleteRegistrationAsync(request.Token, SessionBinding(context), request.Credential);
+            return Results.Ok(new { token, options = JsonDocument.Parse(options.ToJson()).RootElement.Clone(), salt = Convert.ToBase64String(salt) });
+        }
+        catch { return Results.BadRequest(new { error = "Die Geräteanmeldung konnte nicht bestätigt werden. Wählen Sie im Passkey-Dialog Windows Hello beziehungsweise dieses Gerät und versuchen Sie es erneut." }); }
+    });
+
+    app.MapPost("/api/auth/hello/register/complete", async (HelloAssertionRequest request, HttpContext context, HelloCeremonies hello) =>
+    {
+        if (!CorrectHelloOrigin(context)) return Results.BadRequest(new { error = "Ungültige Adresse." });
+        byte[]? prf = null;
+        try
+        {
+            prf = Convert.FromBase64String(request.Prf);
+            await hello.ConfirmRegistrationAsync(request.Token, SessionBinding(context), request.Credential, prf);
+            return Results.Ok(new { success = true });
+        }
+        catch { return Results.BadRequest(new { error = "Die Einrichtung ist fehlgeschlagen. Die App-PIN bleibt verwendbar." }); }
+        finally { if (prf is not null) CryptographicOperations.ZeroMemory(prf); }
+    });
+
+    app.MapPost("/api/auth/hello/unlock/options", (HttpContext context, HelloCeremonies hello) =>
+    {
+        if (!CorrectHelloOrigin(context)) return Results.BadRequest(new { error = "Bitte Klausurfix über http://localhost:5000 öffnen." });
+        try
+        {
+            var binding = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+            var (token, options, salt) = hello.BeginUnlock(binding);
+            context.Response.Cookies.Append(helloCookie, binding, new CookieOptions
+            {
+                HttpOnly = true, SameSite = SameSiteMode.Strict, IsEssential = true,
+                Path = "/api/auth/hello/unlock", MaxAge = TimeSpan.FromMinutes(2)
+            });
+            return Results.Ok(new { token, options = JsonDocument.Parse(options.ToJson()).RootElement.Clone(), salt = Convert.ToBase64String(salt) });
+        }
+        catch { return Results.BadRequest(new { error = "Geräteanmeldung ist nicht eingerichtet." }); }
+    });
+
+    app.MapPost("/api/auth/hello/unlock/complete", async (HelloAssertionRequest request, HttpContext context, HelloCeremonies hello, KeyManager km, DatabaseContext db, LocalSessions sessions) =>
+    {
+        if (!CorrectHelloOrigin(context)) return Results.BadRequest(new { error = "Ungültige Adresse." });
+        byte[]? prf = null;
+        try
+        {
+            var binding = context.Request.Cookies[helloCookie] ?? "";
+            context.Response.Cookies.Delete(helloCookie, new CookieOptions { Path = "/api/auth/hello/unlock" });
+            prf = Convert.FromBase64String(request.Prf);
+            await hello.CompleteUnlockAsync(request.Token, binding, request.Credential, prf);
+            sessions.RevokeAll(context);
+            try { db.InitializeDatabase(); db.MigrateLegacyPlaintext(); db.EnsureRequestedSchoolProfiles(); }
+            catch { km.Lock(); return Results.Problem("Die Datenmigration konnte nicht abgeschlossen werden.", statusCode: 500); }
+            sessions.Issue(context);
+            return Results.Ok(new { success = true });
+        }
+        catch { return Results.BadRequest(new { error = "Geräteanmeldung fehlgeschlagen. Bitte die App-PIN verwenden." }); }
+        finally { if (prf is not null) CryptographicOperations.ZeroMemory(prf); }
+    });
+}
+
 app.MapPost("/api/auth/lock", (HttpContext context, KeyManager km, LocalSessions sessions) =>
 {
     km.Lock();
@@ -233,8 +322,10 @@ app.MapPost("/api/auth/change-pin", (ChangePinRequest req, KeyManager km) =>
 app.MapPost("/api/auth/hello/register", () => Results.Problem(
     "Windows Hello ist derzeit nicht verfügbar.", statusCode: 501));
 
-app.MapPost("/api/auth/hello/remove", (KeyManager km) =>
+app.MapPost("/api/auth/hello/remove", (PinUnlockRequest req, KeyManager km) =>
 {
+    var (success, message, _) = km.UnlockWithPin(req.Pin ?? "");
+    if (!success) return Results.BadRequest(new { error = message });
     km.RemoveHello();
     return Results.Ok(new { success = true, message = "Windows Hello entfernt." });
 });
@@ -617,6 +708,8 @@ app.Run();
 public record InitRequest(string Pin, string RecoveryKey, int? InactivityTimeoutMinutes);
 public record PinUnlockRequest(string Pin);
 public record RecoveryUnlockRequest(string RecoveryKey);
+public record HelloRegistrationRequest(string Token, AuthenticatorAttestationRawResponse Credential);
+public record HelloAssertionRequest(string Token, AuthenticatorAssertionRawResponse Credential, string Prf);
 public record ChangePinRequest(string OldPin, string NewPin);
 public record TimeoutRequest(int TimeoutMinutes);
 public record BackupCreateRequest(string RecoveryKey);

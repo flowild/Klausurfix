@@ -444,12 +444,18 @@
           <div style="margin-top: 2rem; border-top: 1px solid var(--gray-200); padding-top: 1.5rem;">
             <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem;">Windows Hello Entsperrung</h3>
             <p class="form-hint" style="margin-bottom: 1rem;">
-              Diese Funktion ist noch nicht verfügbar. Entsperren Sie die App mit Ihrer App-PIN.
+              Richten Sie die Geräteanmeldung auf diesem Rechner ein. Wählen Sie im Passkey-Dialog Windows Hello beziehungsweise dieses Gerät. Ihre App-PIN bleibt weiterhin nutzbar.
             </p>
+            <div class="form-group" id="helloPinGroup" hidden>
+              <label class="form-label" for="helloPin">App-PIN zur Bestätigung</label>
+              <input type="password" id="helloPin" class="form-control" inputmode="numeric" autocomplete="off">
+            </div>
             <div style="display: flex; gap: 0.75rem;">
               <button type="button" class="btn btn-secondary" id="registerHelloBtn" disabled>Windows Hello derzeit nicht verfügbar</button>
-              <button type="button" class="btn btn-secondary" id="removeHelloBtn" style="color: var(--danger); border-color: var(--danger-light);">Entfernen</button>
+              <button type="button" class="btn btn-secondary" id="removeHelloBtn" disabled style="color: var(--danger); border-color: var(--danger-light);">Entfernen</button>
             </div>
+            <button type="button" class="btn btn-secondary btn-sm" id="checkHelloSupportBtn" style="margin-top: 0.75rem;">Geräteunterstützung prüfen</button>
+            <p class="form-hint" id="helloSupportResult" role="status" aria-live="polite"></p>
           </div>
 
           <!-- Inactivity Timeout -->

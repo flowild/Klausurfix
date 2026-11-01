@@ -79,8 +79,8 @@ export const api = {
   registerHello() {
     return this.request("/api/auth/hello/register", { method: "POST" });
   },
-  removeHello() {
-    return this.request("/api/auth/hello/remove", { method: "POST" });
+  removeHello(pin) {
+    return this.request("/api/auth/hello/remove", { method: "POST", body: JSON.stringify({ pin }) });
   },
 
   // Schulformen

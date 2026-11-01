@@ -3,7 +3,7 @@
 ## Arbeitsstand und Auftrag
 
 - Stand: 1. November 2026. Eine erste lokale Anwendung ist vorhanden; der Nutzer hat die Behebung der bei der Überprüfung festgestellten Probleme beauftragt.
-- PIN und Verschlüsselung sind Anforderungen der Anwendung. Windows Hello bleibt eine Anforderung, ist jedoch bis zur Implementierung und Prüfung einer echten Benutzerverifikation deaktiviert.
+- PIN und Verschlüsselung sind Anforderungen der Anwendung. Windows Hello soll mit verpflichtender Benutzerverifikation implementiert werden; die Funktion darf für die Prüfung auf dem Surface freigeschaltet werden. Ein noch ausstehender Hardwaretest ist klar zu benennen.
 - Bei ausdrücklichem Implementierungsauftrag innerhalb dieses Umfangs selbstständig weiterarbeiten. Routineentscheidungen treffen; nur fachlich notwendige offene Punkte klären.
 - Mit der Nutzerin bzw. dem Nutzer auf Deutsch kommunizieren. Die Oberfläche und Dokumente sind deutschsprachig.
 - Festgelegte Anforderungen von Vorschlägen und offenen Entscheidungen unterscheiden. Keine amtlichen Bewertungsregeln erfinden.

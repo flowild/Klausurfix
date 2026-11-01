@@ -11,6 +11,119 @@ using Microsoft.Data.Sqlite;
 public class KeyManagerAndBackupTests : IDisposable
 {
     [Fact]
+    public async Task HelloRegistrationAndUnlockRequireValidSignedResponses()
+    {
+        _keyManager.Setup("123456", KeyManager.GenerateRecoveryKey());
+        var original = _keyManager.GetActiveDek();
+        var ceremonies = new HelloCeremonies(_keyManager);
+        using var key = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        var id = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+        var prf = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+        var (registrationToken, registrationOptions) = ceremonies.BeginRegistration("session");
+        var attestation = CreateAttestation(key, id, registrationOptions.Challenge);
+        var (confirmationToken, confirmationOptions, _) = await ceremonies.CompleteRegistrationAsync(registrationToken, "session", attestation);
+        var confirmation = CreateAssertion(key, id, confirmationOptions.Challenge, 1);
+        await ceremonies.ConfirmRegistrationAsync(confirmationToken, "session", confirmation, prf);
+        Assert.True(_keyManager.IsHelloRegistered);
+        _keyManager.Lock();
+
+        var (invalidToken, invalidOptions, _) = ceremonies.BeginUnlock("browser");
+        var wrongOrigin = CreateAssertion(key, id, invalidOptions.Challenge, 2, "http://attacker.example");
+        await Assert.ThrowsAnyAsync<Exception>(() => ceremonies.CompleteUnlockAsync(invalidToken, "browser", wrongOrigin, prf));
+        Assert.False(_keyManager.IsUnlocked);
+
+        var (token, options, _) = ceremonies.BeginUnlock("browser");
+        var response = CreateAssertion(key, id, options.Challenge, 2);
+        await ceremonies.CompleteUnlockAsync(token, "browser", response, prf);
+        Assert.Equal(original, _keyManager.GetActiveDek());
+        _keyManager.Lock();
+        await Assert.ThrowsAnyAsync<Exception>(() => ceremonies.CompleteUnlockAsync(token, "browser", response, prf));
+        Assert.False(_keyManager.IsUnlocked);
+    }
+
+    private static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    private static byte[] ClientData(string type, byte[] challenge, string origin = "http://localhost:5000") =>
+        System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new { type, challenge = Base64Url(challenge), origin, crossOrigin = false });
+
+    internal static Fido2NetLib.AuthenticatorAttestationRawResponse CreateAttestation(System.Security.Cryptography.ECDsa key, byte[] id, byte[] challenge)
+    {
+        var pub = key.ExportParameters(false).Q;
+        byte[] cose = new byte[] { 0xa5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01, 0x21, 0x58, 0x20 }
+            .Concat(pub.X!).Concat(new byte[] { 0x22, 0x58, 0x20 }).Concat(pub.Y!).ToArray();
+        var authData = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("localhost"))
+            .Concat(new byte[] { 0x45, 0, 0, 0, 0 }).Concat(new byte[16])
+            .Concat(new byte[] { 0, (byte)id.Length }).Concat(id).Concat(cose).ToArray();
+        var attestation = new byte[] { 0xa3, 0x63, 0x66, 0x6d, 0x74, 0x64, 0x6e, 0x6f, 0x6e, 0x65,
+            0x67, 0x61, 0x74, 0x74, 0x53, 0x74, 0x6d, 0x74, 0xa0,
+            0x68, 0x61, 0x75, 0x74, 0x68, 0x44, 0x61, 0x74, 0x61, 0x58, (byte)authData.Length }
+            .Concat(authData).ToArray();
+        return new Fido2NetLib.AuthenticatorAttestationRawResponse
+        {
+            Id = Base64Url(id), RawId = id, Type = Fido2NetLib.Objects.PublicKeyCredentialType.PublicKey,
+            ClientExtensionResults = new(), Response = new()
+            {
+                ClientDataJson = ClientData("webauthn.create", challenge), AttestationObject = attestation,
+                Transports = Array.Empty<Fido2NetLib.Objects.AuthenticatorTransport>()
+            }
+        };
+    }
+
+    internal static Fido2NetLib.AuthenticatorAssertionRawResponse CreateAssertion(System.Security.Cryptography.ECDsa key, byte[] id, byte[] challenge, byte counter, string origin = "http://localhost:5000")
+    {
+        var data = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("localhost"))
+            .Concat(new byte[] { 0x05, 0, 0, 0, counter }).ToArray();
+        var client = ClientData("webauthn.get", challenge, origin);
+        var signed = data.Concat(System.Security.Cryptography.SHA256.HashData(client)).ToArray();
+        var signature = key.SignData(signed, System.Security.Cryptography.HashAlgorithmName.SHA256,
+            System.Security.Cryptography.DSASignatureFormat.Rfc3279DerSequence);
+        return new Fido2NetLib.AuthenticatorAssertionRawResponse
+        {
+            Id = Base64Url(id), RawId = id, Type = Fido2NetLib.Objects.PublicKeyCredentialType.PublicKey,
+            ClientExtensionResults = new(), Response = new() { AuthenticatorData = data, ClientDataJson = client, Signature = signature }
+        };
+    }
+
+    [Fact]
+    public async Task HelloRegistrationChallengeIsBoundToSessionAndSingleUse()
+    {
+        _keyManager.Setup("123456", KeyManager.GenerateRecoveryKey());
+        var ceremonies = new HelloCeremonies(_keyManager);
+        var (token, options) = ceremonies.BeginRegistration("session-a");
+        Assert.Equal(Fido2NetLib.Objects.UserVerificationRequirement.Required, options.AuthenticatorSelection.UserVerification);
+        Assert.Equal(Fido2NetLib.Objects.AuthenticatorAttachment.Platform, options.AuthenticatorSelection.AuthenticatorAttachment);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => ceremonies.CompleteRegistrationAsync(token, "session-b", null!));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => ceremonies.CompleteRegistrationAsync(token, "session-a", null!));
+    }
+
+    [Fact]
+    public void HelloKeyEnvelopeSurvivesPinUnlockAndRequiresTheCorrectPrf()
+    {
+        _keyManager.Setup("123456", KeyManager.GenerateRecoveryKey());
+        var original = _keyManager.GetActiveDek();
+        var credential = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+        var prf = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+        var salt = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+        _keyManager.SaveVerifiedHelloCredential(credential, new byte[] { 1 }, salt, prf, 1, new byte[] { 2 });
+        _keyManager.Lock();
+        Assert.True(_keyManager.UnlockWithPin("123456").Success);
+        Assert.True(_keyManager.IsHelloRegistered);
+        _keyManager.Lock();
+        Assert.ThrowsAny<System.Security.Cryptography.CryptographicException>(() =>
+            _keyManager.UnlockWithVerifiedHello(credential, new byte[32], 2));
+        Assert.False(_keyManager.IsUnlocked);
+        _keyManager.UnlockWithVerifiedHello(credential, prf, 2);
+        Assert.Equal(original, _keyManager.GetActiveDek());
+        _keyManager.Lock();
+        Assert.ThrowsAny<System.Security.Cryptography.CryptographicException>(() =>
+            _keyManager.UnlockWithVerifiedHello(credential, prf, 2));
+        Assert.False(_keyManager.IsUnlocked);
+        Assert.True(_keyManager.UnlockWithPin("123456").Success);
+        _keyManager.RemoveHello();
+        Assert.False(_keyManager.IsHelloRegistered);
+    }
+
+    [Fact]
     public void NewSchoolDefaultsDoNotOverwriteExistingProfilesOrReappearAfterDeletion()
     {
         _keyManager.Setup("123456", KeyManager.GenerateRecoveryKey());

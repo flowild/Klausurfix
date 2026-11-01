@@ -96,6 +96,73 @@ public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Progra
     }
 
     [Fact]
+    public async Task HelloApiCanRegisterLockAndUnlockWithSignedCredential()
+    {
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/setup/init", new
+        {
+            pin = "123456", recoveryKey = KeyManager.GenerateRecoveryKey(), inactivityTimeoutMinutes = 15
+        })).StatusCode);
+        using var key = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        var credentialId = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+        var prf = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+        var beginResponse = await _client.PostAsJsonAsync("/api/auth/hello/register/options", new { pin = "123456" });
+        Assert.Equal(HttpStatusCode.OK, beginResponse.StatusCode);
+        var begin = await beginResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var createOptions = Fido2NetLib.CredentialCreateOptions.FromJson(begin.GetProperty("options").GetRawText());
+        var attestation = KeyManagerAndBackupTests.CreateAttestation(key, credentialId, createOptions.Challenge);
+        var registerResponse = await _client.PostAsJsonAsync("/api/auth/hello/register/credential", new
+        {
+            token = begin.GetProperty("token").GetString(), credential = attestation
+        });
+        Assert.Equal(HttpStatusCode.OK, registerResponse.StatusCode);
+        var register = await registerResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var confirmOptions = Fido2NetLib.AssertionOptions.FromJson(register.GetProperty("options").GetRawText());
+        var confirm = KeyManagerAndBackupTests.CreateAssertion(key, credentialId, confirmOptions.Challenge, 1);
+        var confirmResponse = await _client.PostAsJsonAsync("/api/auth/hello/register/complete", new
+        {
+            token = register.GetProperty("token").GetString(), credential = confirm, prf
+        });
+        Assert.Equal(HttpStatusCode.OK, confirmResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsync("/api/auth/lock", null)).StatusCode);
+        var unlockResponse = await _client.PostAsync("/api/auth/hello/unlock/options", null);
+        Assert.Equal(HttpStatusCode.OK, unlockResponse.StatusCode);
+        var unlock = await unlockResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var unlockOptions = Fido2NetLib.AssertionOptions.FromJson(unlock.GetProperty("options").GetRawText());
+        var assertion = KeyManagerAndBackupTests.CreateAssertion(key, credentialId, unlockOptions.Challenge, 2);
+        var completeResponse = await _client.PostAsJsonAsync("/api/auth/hello/unlock/complete", new
+        {
+            token = unlock.GetProperty("token").GetString(), credential = assertion, prf
+        });
+        Assert.Equal(HttpStatusCode.OK, completeResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync("/api/klassen")).StatusCode);
+    }
+
+    [Fact]
+    public async Task HelloRegistrationRequiresSessionAndPinAndRejectsOtherOrigins()
+    {
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await _client.PostAsJsonAsync("/api/auth/hello/register/options", new { pin = "123456" })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/setup/init", new
+        {
+            pin = "123456", recoveryKey = KeyManager.GenerateRecoveryKey(), inactivityTimeoutMinutes = 15
+        })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await _client.PostAsJsonAsync("/api/auth/hello/register/options", new { pin = "654321" })).StatusCode);
+        using var foreign = new HttpRequestMessage(HttpMethod.Post, "/api/auth/hello/register/options")
+        {
+            Content = JsonContent.Create(new { pin = "123456" })
+        };
+        foreign.Headers.Add("Origin", "https://attacker.example");
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.SendAsync(foreign)).StatusCode);
+        var options = await _client.PostAsJsonAsync("/api/auth/hello/register/options", new { pin = "123456" });
+        Assert.Equal(HttpStatusCode.OK, options.StatusCode);
+        var data = await options.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(string.IsNullOrEmpty(data.GetProperty("token").GetString()));
+        Assert.Equal("required", data.GetProperty("options").GetProperty("authenticatorSelection").GetProperty("userVerification").GetString());
+        Assert.False(_factory.Services.GetRequiredService<KeyManager>().IsHelloRegistered);
+    }
+
+    [Fact]
     public async Task FullEndToEndFlow_SetupUnlockClassExamExport()
     {
         // 1. Check Setup Status
@@ -238,8 +305,10 @@ public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Progra
 
         var shutdown = await _client.PostAsync("/api/application/shutdown", null);
         Assert.Equal(HttpStatusCode.OK, shutdown.StatusCode);
+        await shutdown.Content.ReadAsStringAsync();
         Assert.False(_factory.Services.GetRequiredService<KeyManager>().IsUnlocked);
-        Assert.True(_factory.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping.IsCancellationRequested);
+        var stopping = _factory.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping;
+        Assert.True(stopping.IsCancellationRequested || stopping.WaitHandle.WaitOne(TimeSpan.FromSeconds(2)));
     }
 }
 

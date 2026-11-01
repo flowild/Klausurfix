@@ -22,7 +22,7 @@ Entwickelt für den Betrieb auf einem **Microsoft Surface Pro** unter Windows.
 - **PDF- & DOCX-Export:** Übersichtsberichte im Querformat mit Aufgabenmatrix, waagerechtem Notenspiegel und Bewertungsregeln.
 - **Sicherheit & Windows Hello:**
   - 6-stellige App-PIN mit PBKDF2-Schlüsselableitung (600.000 Iterationen) und progressiver Verzögerung bei Fehlversuchen.
-  - Die PIN-Schlüsselhülle wird zusätzlich an den Windows-Benutzer gebunden. Windows Hello ist derzeit deaktiviert, bis eine echte Benutzerverifikation implementiert ist.
+  - Die PIN-Schlüsselhülle wird zusätzlich an den Windows-Benutzer gebunden. Die Geräteanmeldung über WebAuthn erfordert Benutzerverifikation und einen PRF-fähigen Plattformauthentifikator; die App-PIN bleibt verfügbar. Die Funktion muss auf dem Surface mit Windows Hello und dem verwendeten Browser geprüft werden.
   - Unabhängiger Wiederherstellungsschlüssel (`KF-XXXX-XXXX-...`) für portable Backups und Neuinstallationen.
   - Automatische Sperre bei Inaktivität und manueller Sofort-Sperrknopf.
 
@@ -44,7 +44,7 @@ Für die Entwicklung alternativ im Terminal:
 ```bash
 dotnet run --project src/Klausurfix.Web/Klausurfix.Web.csproj
 ```
-Klausurfix bindet ausschließlich an den lokalen Loopback-Adapter (`http://127.0.0.1:5000`).
+Klausurfix bindet ausschließlich an den lokalen Loopback-Adapter und wird im Browser unter `http://localhost:5000` geöffnet.
 
 ### 2. Ersteinrichtung
 1. Beim ersten Start öffnet sich der Einrichtungs-Assistent.
