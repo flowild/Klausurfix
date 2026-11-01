@@ -1,0 +1,251 @@
+namespace Klausurfix.Core.Calculations;
+
+using Klausurfix.Core.Models;
+
+public static class ExamCalculator
+{
+    /// <summary>
+    /// Calculates the Error Quotient (Fehlerquotient): (Rechtschreibfehler * 100) / Wortanzahl.
+    /// Returns null if words is null, zero, or negative (as words=0 cannot produce a valid quotient).
+    /// </summary>
+    public static decimal? CalculateErrorQuotient(int? wordCount, int? errorCount)
+    {
+        if (!wordCount.HasValue || wordCount.Value <= 0)
+            return null;
+
+        if (!errorCount.HasValue || errorCount.Value < 0)
+            return null;
+
+        return ((decimal)errorCount.Value * 100m) / (decimal)wordCount.Value;
+    }
+
+    /// <summary>
+    /// Determines the applicable deduction based on the Error Quotient and deduction tiers.
+    /// Below the first threshold, the deduction is 0.
+    /// Tiers apply inclusive of their threshold up to next tier exclusive.
+    /// </summary>
+    public static decimal CalculateDeduction(decimal? errorQuotient, IEnumerable<DeductionTier> tiers, decimal? maxDeduction = null)
+    {
+        if (!errorQuotient.HasValue || tiers == null)
+            return 0.0m;
+
+        var sortedTiers = tiers.OrderBy(t => t.Threshold).ToList();
+        if (sortedTiers.Count == 0)
+            return 0.0m;
+
+        decimal deduction = 0.0m;
+        foreach (var tier in sortedTiers)
+        {
+            if (errorQuotient.Value >= tier.Threshold)
+            {
+                deduction = tier.Deduction;
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        if (maxDeduction.HasValue && deduction > maxDeduction.Value)
+        {
+            deduction = maxDeduction.Value;
+        }
+
+        return deduction;
+    }
+
+    /// <summary>
+    /// Finds the initial grade from the grade key using exact decimal percentage.
+    /// Boundaries are evaluated descending without pre-rounding.
+    /// </summary>
+    public static (int GradeValue, string Label) CalculateInitialGrade(decimal percentage, IEnumerable<GradeBoundary> gradeKey, GradingSystem system)
+    {
+        var sorted = gradeKey.OrderByDescending(b => b.MinPercentage).ToList();
+        if (sorted.Count == 0)
+        {
+            return system == GradingSystem.Schulnoten ? (6, "6") : (0, "0");
+        }
+
+        foreach (var boundary in sorted)
+        {
+            if (percentage >= boundary.MinPercentage)
+            {
+                return (boundary.GradeValue, boundary.Label);
+            }
+        }
+
+        var last = sorted.Last();
+        return (last.GradeValue, last.Label);
+    }
+
+    /// <summary>
+    /// Calculates final grade from initial grade and deduction.
+    /// Schulnoten: initial grade + deduction (worsens numerically up to max 6).
+    /// Notenpunkte: initial grade - deduction (decreases down to min 0).
+    /// </summary>
+    public static (int GradeValue, string Label) CalculateFinalGrade(int initialGrade, decimal deduction, GradingSystem system)
+    {
+        int roundedDeduction = (int)Math.Round(deduction, MidpointRounding.AwayFromZero);
+
+        if (system == GradingSystem.Schulnoten)
+        {
+            int finalVal = Math.Clamp(initialGrade + roundedDeduction, 1, 6);
+            return (finalVal, finalVal.ToString());
+        }
+        else
+        {
+            int finalVal = Math.Clamp(initialGrade - roundedDeduction, 0, 15);
+            return (finalVal, $"{finalVal} Notenpunkte");
+        }
+    }
+
+    /// <summary>
+    /// Calculates results for a single student entry in an exam.
+    /// </summary>
+    public static ExamCalculationResult CalculateStudentEntry(
+        ExamStudentEntry entry,
+        Exam exam,
+        GradingProfile? profileOverride = null)
+    {
+        var profile = profileOverride ?? exam.GradingProfileSnapshot;
+        decimal totalMaxPoints = exam.TotalMaxPoints;
+
+        // If total max points is 0, we can't calculate percentage
+        if (totalMaxPoints <= 0)
+        {
+            return new ExamCalculationResult
+            {
+                StudentId = entry.StudentId,
+                StudentName = entry.StudentName,
+                Status = entry.Status,
+                MaxPoints = 0
+            };
+        }
+
+        // Sum points for entered tasks
+        decimal rawPoints = 0;
+        foreach (var task in exam.Tasks)
+        {
+            if (entry.TaskPoints.TryGetValue(task.TaskNumber, out var pts) && pts.HasValue)
+            {
+                // Clamp task points to task max points
+                decimal clamped = Math.Clamp(pts.Value, 0m, task.MaxPoints);
+                rawPoints += clamped;
+            }
+        }
+
+        // Percentage calculated with full decimal precision
+        decimal percentage = (rawPoints / totalMaxPoints) * 100m;
+
+        // Initial grade from grade key
+        var (initGrade, initLabel) = CalculateInitialGrade(percentage, profile.GradeKey, profile.System);
+
+        // Error quotient
+        decimal? fq = CalculateErrorQuotient(entry.WordCount, entry.ErrorCount);
+
+        // Deduction
+        decimal deduction = CalculateDeduction(fq, profile.DeductionTiers, profile.MaxDeduction);
+
+        // Final grade
+        var (finalGrade, finalLabel) = CalculateFinalGrade(initGrade, deduction, profile.System);
+
+        return new ExamCalculationResult
+        {
+            StudentId = entry.StudentId,
+            StudentName = entry.StudentName,
+            Status = entry.Status,
+            RawPoints = rawPoints,
+            MaxPoints = totalMaxPoints,
+            Percentage = percentage,
+            InitialGrade = initGrade,
+            InitialGradeLabel = initLabel,
+            WordCount = entry.WordCount,
+            ErrorCount = entry.ErrorCount,
+            ErrorQuotient = fq,
+            Deduction = deduction,
+            FinalGrade = finalGrade,
+            FinalGradeLabel = finalLabel
+        };
+    }
+
+    /// <summary>
+    /// Evaluates the complete exam, calculating all student entries, summary statistics,
+    /// class average, and grade distribution (Notenspiegel).
+    /// </summary>
+    public static ExamSummary CalculateExamSummary(Exam exam, GradingProfile? profileOverride = null)
+    {
+        var profile = profileOverride ?? exam.GradingProfileSnapshot;
+        var results = new List<ExamCalculationResult>();
+
+        foreach (var entry in exam.StudentEntries)
+        {
+            results.Add(CalculateStudentEntry(entry, exam, profile));
+        }
+
+        var gradedResults = results.Where(r => r.Status == StudentExamStatus.Graded && r.FinalGrade.HasValue).ToList();
+        var excludedResults = results.Where(r => r.Status != StudentExamStatus.Graded).ToList();
+
+        decimal? average = null;
+        if (gradedResults.Count > 0)
+        {
+            decimal sum = gradedResults.Sum(r => (decimal)r.FinalGrade!.Value);
+            average = sum / gradedResults.Count;
+        }
+
+        // Prepare Grade Distribution (Notenspiegel)
+        var distribution = new Dictionary<string, int>();
+        if (profile.System == GradingSystem.Schulnoten)
+        {
+            for (int grade = 1; grade <= 6; grade++)
+            {
+                distribution[grade.ToString()] = 0;
+            }
+
+            foreach (var r in gradedResults)
+            {
+                if (r.FinalGrade.HasValue)
+                {
+                    string key = r.FinalGrade.Value.ToString();
+                    if (distribution.ContainsKey(key))
+                        distribution[key]++;
+                    else
+                        distribution[key] = 1;
+                }
+            }
+        }
+        else
+        {
+            for (int pts = 15; pts >= 0; pts--)
+            {
+                distribution[pts.ToString()] = 0;
+            }
+
+            foreach (var r in gradedResults)
+            {
+                if (r.FinalGrade.HasValue)
+                {
+                    string key = r.FinalGrade.Value.ToString();
+                    if (distribution.ContainsKey(key))
+                        distribution[key]++;
+                    else
+                        distribution[key] = 1;
+                }
+            }
+        }
+
+        return new ExamSummary
+        {
+            TotalStudents = results.Count,
+            GradedCount = gradedResults.Count,
+            ExcludedCount = excludedResults.Count,
+            MissingCount = results.Count(r => r.Status == StudentExamStatus.Missing),
+            NotParticipatedCount = results.Count(r => r.Status == StudentExamStatus.NotParticipated),
+            IncompleteCount = results.Count(r => r.Status == StudentExamStatus.Incomplete),
+            ClassAverage = average,
+            Unit = profile.System == GradingSystem.Schulnoten ? "Noten" : "Notenpunkte",
+            GradeDistribution = distribution,
+            Results = results
+        };
+    }
+}
+

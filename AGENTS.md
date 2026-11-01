@@ -1,0 +1,190 @@
+# Klausurfix – Projektvorgaben für Coding-Agenten
+
+## Arbeitsstand und Auftrag
+
+- Stand: 1. November 2026. Das Repository enthält bislang keine Anwendung.
+- Aktuell ist die Planung samt dieser Datei beauftragt. Noch keinen Anwendungscode, kein Projektgerüst und keine Abhängigkeiten anlegen. Die ursprüngliche Vorgabe „noch keinen Code“ bleibt für diese Planungsrunde bestehen.
+- Die zuletzt genannten Funktionen einschließlich PIN, Verschlüsselung und Windows Hello sind Anforderungen an die spätere Implementierung.
+- Bei ausdrücklichem Implementierungsauftrag innerhalb dieses Umfangs selbstständig weiterarbeiten. Routineentscheidungen treffen; nur fachlich notwendige offene Punkte klären.
+- Mit der Nutzerin bzw. dem Nutzer auf Deutsch kommunizieren. Die Oberfläche und Dokumente sind deutschsprachig.
+- Festgelegte Anforderungen von Vorschlägen und offenen Entscheidungen unterscheiden. Keine amtlichen Bewertungsregeln erfinden.
+
+## Ziel und Betrieb
+
+Eine Lehrerin verwaltet Klassen und Klausuren, erfasst Leistungen und Rechtschreibfehler und erhält nachvollziehbare Noten, Durchschnittswerte und einen Notenspiegel.
+
+- Zielgerät: ein Surface Pro 11 unter Windows; genaue Prozessorarchitektur und Windows-Version vor der Paketierung feststellen.
+- Bedienung im Browser. Ein lokales Hintergrundprogramm mit Datenbank und Windows-Anbindung ist ausdrücklich zulässig.
+- Alle Anwendungsdaten verbleiben auf diesem Rechner. Keine Cloud, Kontopflicht, Telemetrie, externen Schriftarten, CDNs oder externen Berechnungsdienste.
+- Nach Installation vollständig offline nutzbar, einschließlich Anmeldung, Berechnung, Export, Sicherung und Wiederherstellung.
+- Einzelbenutzerbetrieb auf diesem einen Gerät. Keine Mehrbenutzer- oder Synchronisierungsfunktionen einführen.
+- Start möglichst über eine Verknüpfung, die den lokalen Dienst startet und die Oberfläche öffnet; keine Entwicklerkonsole im Alltagsbetrieb verlangen.
+- Arbeitsdaten und Sicherungen außerhalb des Git-Repositorys und außerhalb synchronisierter Ordner ablegen.
+
+## Fachliche Anforderungen
+
+### Schulformen und Bewertungsprofile
+
+- Schulformen frei anlegen, bearbeiten und löschen bzw. bei bestehenden Referenzen archivieren können.
+- Eine Klasse gehört zu einer Schulform.
+- Je Schulform einstellen, ob der Fehlerquotient einen Abzug ganzer Schulnoten oder einen Abzug von Notenpunkten auslöst.
+- Frei konfigurierbare Tabelle: Fehlerquotient ab einer Grenze und dazugehöriger Abzug. Beliebig viele Stufen und eine Vorschau anhand von Beispielen ermöglichen.
+- Grenzen aufsteigend, eindeutig und ohne widersprüchliche Intervalle prüfen. Semantik sichtbar festlegen: Eine Stufe gilt ab ihrer Grenze einschließlich bis zur nächsten Grenze ausschließlich.
+- Unterhalb der ersten Abzugsgrenze beträgt der Abzug null. Negative Abzüge und negative Grenzen sind ungültig.
+- Das Notensystem und die Abzugseinheit als getrennte, aber konsistent zu validierende Einstellungen behandeln.
+- Bei Schulnoten verschlechtert ein Abzug die Note numerisch nach oben; bei Notenpunkten vermindert er den Wert. Ergebnis an die Grenzen des ausgewählten Systems begrenzen.
+- Ein prozentualer bzw. punktbasierter Notenschlüssel muss einstellbar sein. Die konkrete Standardbelegung und Rundung sind noch offen.
+- Keine fest eingebauten bundesland- oder schulformspezifischen Tabellen als verbindlich ausgeben.
+
+### Klassen und Schüler
+
+- Klassen mit Name, zugehöriger Schulform und Schülerliste erstellen und bearbeiten.
+- Schüler über stabile IDs führen; gleiche Namen erlauben und unterscheidbar darstellen.
+- Änderungen und Archivierung dürfen frühere Klausurergebnisse nicht unbeabsichtigt verändern.
+
+### Klausuren
+
+- Titel, Datum, Klasse, Aufgabenanzahl und maximale Punkte pro Aufgabe erfassen.
+- Gesamtpunktzahl aus den Aufgaben berechnen; Aufgabenanzahl und Einzelaufgaben müssen übereinstimmen.
+- Schülerliste, Bewertungsprofil, Notenschlüssel und Regeln für die jeweilige Klausur versioniert festhalten. Spätere Änderungen an Stammdaten dürfen bestehende Auswertungen nicht stillschweigend ändern.
+- Änderungen am Bewertungsprofil einer bestehenden Klausur nur als bewusste, nachvollziehbare Neuberechnung erlauben.
+- Pro Schüler und Aufgabe erreichte Punkte erfassen; zusätzlich Wortanzahl und Anzahl der Rechtschreibfehler pro Schüler und Klausur.
+- Eingaben automatisch lokal speichern und den Speicherstatus anzeigen. Ungespeicherte Eingaben dürfen nicht als gespeichert erscheinen.
+
+### Berechnungen
+
+- Festgelegte Formel: Fehlerquotient = (Rechtschreibfehler × 100) / Wortanzahl.
+- Wortanzahl und Fehleranzahl sind nichtnegative ganze Zahlen. Wortanzahl null oder fehlend ergibt keinen berechenbaren Fehlerquotienten und darf nicht als null gewertet werden.
+- Beispiel: 12 Fehler und 600 Wörter ergeben einen Fehlerquotienten von 2.
+- Punkte müssen zwischen null und der jeweiligen Aufgabenhöchstpunktzahl liegen. Dezimale Punkte technisch ermöglichen; erlaubte Schrittweite bleibt konfigurierbar bzw. fachlich zu klären.
+- Rohpunkte → Anteil an Gesamtpunkten → Ausgangsnote → Fehlerquotient → zutreffender Abzug → Endnote getrennt darstellen und nachvollziehbar berechnen.
+- Für Grenzvergleiche keine vorab gerundeten Anzeigewerte verwenden. Dezimalarithmetik bzw. exakte Vergleiche einsetzen, damit Grenzwerte stabil bleiben.
+- Anzeigepräzision und fachliche Rundung getrennt festlegen. Noch keine willkürliche Rundungsregel verbindlich machen.
+- Fehlend, nicht teilgenommen, unvollständig und tatsächlich null Punkte sind unterschiedliche Zustände.
+- Unvollständige und ausgeschlossene Ergebnisse nicht als null in den Durchschnitt aufnehmen. Anzahl gewerteter und nicht gewerteter Ergebnisse anzeigen.
+- Klassendurchschnitt aus Endnoten bzw. Endnotenpunkten berechnen und mit der korrekten Einheit beschriften. Noten und Notenpunkte nicht miteinander mitteln.
+- Notenspiegel als Häufigkeit je Endnote bzw. Endnotenpunktzahl und als gut lesbare grafische Verteilung anzeigen.
+- Berechnung an einer zentralen Stelle implementieren; Oberfläche, Export und Wiederherstellung dürfen keine abweichenden Rechenwege besitzen.
+
+## Ansichten und Bedienung
+
+1. Einrichtung: lokale Datenablage, App-PIN, Wiederherstellungsmöglichkeit und Windows Hello.
+2. Entsperren: PIN oder eingerichtetes Windows Hello.
+3. Übersicht: Klassen und Klausuren.
+4. Schulformen: Bewertungsprofile, Abzugsstufen und Notenschlüssel.
+5. Klassen: Zuordnung und Schülerverwaltung.
+6. Klausur erstellen: Klasse, Aufgaben und Höchstpunktzahlen.
+7. Eingabetabelle: eine Zeile je Schüler, eine Spalte je Aufgabe; zusätzliche Felder für Wörter und Fehler; berechnete Ergebnisse daneben.
+8. Auswertung: Einzelwerte innerhalb der Klassenübersicht, Durchschnitt und Notenspiegel.
+9. Einstellungen: PIN/Hello, Sperrverhalten, Sicherung, Wiederherstellung und Löschung.
+
+- Touchbedienung auf dem Surface und vollständige Tastaturbedienung unterstützen.
+- Große Bedienelemente, klare Fokusmarkierung, feste Tabellenköpfe und bei breiten Tabellen sichtbar bleibende Schülernamen vorsehen.
+- Tab-/Enter-Navigation, deutsches Dezimalkomma und verständliche Validierung direkt am Feld unterstützen.
+- Hoch- und Querformat, Bildschirmtastatur und Windows-Anzeigeskalierung berücksichtigen.
+- Keine personenbezogenen Beispieldaten verwenden; Entwicklungsdaten sind synthetisch.
+
+## PDF- und DOCX-Export
+
+- Je Klausur ein gemeinsames, ansprechend gestaltetes Dokument als PDF oder echtes DOCX herunterladen können.
+- Keine Einzelblätter pro Schüler erstellen.
+- Enthalten sind Klausurtitel, Datum, Klasse/Schulform, Aufgabenhöchstpunkte, Schülernamen, Punkte je Aufgabe, Gesamtpunkte, Wortanzahl, Rechtschreibfehler, Fehlerquotient, Ausgangsnote, Abzug, Endnote, Klassendurchschnitt und Notenspiegel.
+- Verwendete Bewertungsregeln und Anzahl gewerteter Ergebnisse dokumentieren; unvollständige Ergebnisse kennzeichnen.
+- Wiederholte Tabellenüberschriften, Seitenzahlen, lesbare Schrift und sinnvolle Seitenumbrüche; breite Tabellen bei Bedarf im Querformat.
+- PDF und DOCX aus demselben fachlichen Auswertungsmodell erstellen. Alle Ressourcen lokal mitliefern.
+- Dokumentexporte sind lesbare Ausgaben und keine vollständigen Datensicherungen. Temporäre Exportdateien vermeiden oder unmittelbar bereinigen.
+
+## PIN, Windows Hello und Verschlüsselung
+
+- Die Sperre muss vom lokalen Backend durchgesetzt werden. Eine ausgeblendete Oberfläche oder ein PIN-Wert im Browser ist kein Zugriffsschutz.
+- App-PIN und Windows-Hello-PIN sind unterschiedliche Dinge. Die Anwendung erhält weder die Windows-PIN noch biometrische Daten.
+- PIN bei Einrichtung festlegen; Mindestlänge als noch zu bestätigenden Vorschlag mit sechs Ziffern planen. PIN-Änderung nur nach erneuter Authentifizierung.
+- PIN niemals im Klartext speichern oder protokollieren. Bewährte Bibliotheken für gesalzene, langsame Schlüsselableitung bzw. Verifikation einsetzen; Parameter auf dem Zielgerät messen.
+- Fehlversuche begrenzen und zunehmend verzögern. Eine kurze PIN ist kein ausreichend starkes alleinstehendes Geheimnis für eine kopierbare Datenbank oder Sicherungsdatei.
+- Zufälligen starken Datenschlüssel verwenden; PIN-geschützten Zugriff zusätzlich an den Windows-Benutzer bzw. geeigneten lokalen Schlüsselschutz binden. Den konkreten Schlüsselaufbau vor Umsetzung dokumentieren.
+- Personenbezogene Daten, Ergebnisse und Sicherungen verschlüsselt speichern, mit authentifizierter Verschlüsselung über etablierte Bibliotheken. Beispielsweise AES-GCM bei Datensatzverschlüsselung; Nonces dürfen sich unter einem Schlüssel nicht wiederholen.
+- Keine selbst erfundenen Kryptoverfahren und keine fest eingebauten Schlüssel. Schlüssel nicht im Repository, Browser-LocalStorage oder neben der Datenbank im Klartext ablegen.
+- Bei SQLite entweder eine unterstützte verschlüsselte Datenbanklösung oder konsequente Verschlüsselung aller sensiblen Datensätze verwenden. Auch Namen, Metadaten, Journale, WAL-Dateien, temporäre Dateien und Migrationspfade berücksichtigen.
+- Windows-DPAPI im Benutzerkontext als möglichen lokalen Schlüsselschutz prüfen. DPAPI allein fordert keine Windows-Hello-Bestätigung an und ersetzt nicht die App-Authentifizierung.
+- Windows Hello als tatsächlichen alternativen Entsperrweg implementieren. Ersteinrichtung, erneute Registrierung und Entfernen von Anmeldemethoden nur aus einem authentifizierten Zustand und mit erneuter Bestätigung.
+- WebAuthn mit Plattformauthentifikator und verpflichtender Benutzerverifikation als Ansatz prüfen. Neue einmalige Challenges, Origin, RP-ID, Signatur und Verifikationsflags im Backend prüfen; geprüfte Bibliothek verwenden.
+- Nicht jeden beliebigen Passkey als Windows Hello bezeichnen. Den tatsächlich verwendeten lokalen Windows-Hello-Weg auf dem Zielgerät prüfen; falls nötig eine native Windows-Anbindung vorsehen.
+- Eine WebAuthn-Signatur ist kein Datenschlüssel. Authentifizierung, Freigabe des geschützten Datenschlüssels und Sitzungsverwaltung ausdrücklich getrennt entwerfen und gemeinsam testen.
+- Keine Cloud-Passkey-Synchronisierung für den vorgesehenen lokalen Anmeldeweg voraussetzen.
+- Wenn Hello nicht eingerichtet, abgebrochen oder nicht verfügbar ist, bleibt die App-PIN nutzbar; kein automatisches Entsperren.
+- Manuellen Sperrknopf und automatische Sperre bei Inaktivität vorsehen. Verhalten bei Standby und Windows-Sperre auf dem Zielgerät prüfen. Nach Sperrung keine Daten-API-Zugriffe oder Exporte zulassen; entschlüsselte Anzeige und Schlüsselzustand möglichst bereinigen.
+- Keine sensiblen Antworten im Browsercache oder Service-Worker-Cache speichern. Keine PINs, Schlüssel, Namen oder Ergebnisse in Logs oder Fehlerberichten.
+- Schutzumfang ehrlich beschreiben: Die App ersetzt weder Windows-Geräteschutz noch Schutz vor Schadsoftware im bereits entsperrten Benutzerkonto.
+
+## Sicherung, Wiederherstellung und Löschen
+
+- Vollständige, versionierte, verschlüsselte Sicherungsdatei einschließlich aller für die fachliche Wiederherstellung nötigen Daten und Regelversionen bereitstellen.
+- Einen lokal von der App verwalteten Sicherungsordner außerhalb von Cloud-Synchronisierung vorsehen. Sicherungen in den Einstellungen auflisten, erzeugen, wiederherstellen und löschen können.
+- Zusätzlicher Download/Kopie einer verschlüsselten Sicherung möglich; erklären, dass extern abgelegte Kopien nicht automatisch mitgelöscht werden können.
+- Sicherung nicht ausschließlich an DPAPI, das aktuelle Windows-Profil oder Windows Hello binden. Wiederherstellung nach Neuinstallation muss mit einem unabhängig verwahrten starken Wiederherstellungsgeheimnis möglich sein.
+- Vorgeschlagener Ansatz: bei Einrichtung einen Wiederherstellungsschlüssel erzeugen und dessen sichere Aufbewahrung bestätigen lassen. Format und Bedienung vor Implementierung festlegen. Die kurze App-PIN nicht als alleinigen Backup-Schutz verwenden.
+- Sicherungen atomar erstellen und Integrität prüfen. Fehlgeschlagene Sicherungen dürfen eine vorhandene gültige Datei nicht überschreiben.
+- Wiederherstellung vor einer Datenänderung vollständig auf Format, Version und Authentizität prüfen; vorhandene Daten erst danach transaktional ersetzen. Neue lokale PIN und Hello-Registrierung bei einer Neuinstallation ermöglichen.
+- Einstellungen bieten getrennte Aktionen für Anwendungsdaten löschen, verwaltete Sicherungen löschen und vollständiges Zurücksetzen einschließlich verwalteter Sicherungen und zugehöriger App-Schlüssel.
+- Löschumfang und Anzahl betroffener Sicherungen konkret anzeigen; für destruktive Aktionen erneute Authentifizierung und ausdrückliche Bestätigung innerhalb der App verlangen.
+- Nur Dateien in verifizierten App-Verzeichnissen löschen. Keine pauschale Suche oder Löschung auf dem Rechner.
+- Nach vollständigem Zurücksetzen bleiben keine eigenen Datenbanken, Journale, temporären Dokumente, Sitzungen oder App-Schlüssel zurück; zum Einrichtungszustand zurückkehren.
+- Kein garantiertes physisches Überschreiben einer SSD versprechen. Externe Sicherungskopien und bereits exportierte PDF-/DOCX-Dateien separat behandeln und die Löschgrenzen sichtbar machen.
+- Wird nur die aktive Datenbank gelöscht, ausdrücklich über verbleibende wiederherstellbare Sicherungen informieren; deren Schlüssel nicht versehentlich unbrauchbar machen.
+
+## Architekturvorschlag – noch keine implementierte Festlegung
+
+- Browseroberfläche und lokales Backend mit einer lokalen SQLite-Datenbank bevorzugen. Das Backend übernimmt Berechnung, Dateiverwaltung, Schlüsselverwaltung und Windows-Anbindung.
+- Möglicher Stack: React mit TypeScript für die Oberfläche und ASP.NET Core/.NET für den lokalen Windows-Dienst. Vor Auswahl aktuelle Wartung, native Abhängigkeiten, Lizenzen und ARM64-/x64-Unterstützung prüfen.
+- Browser als Ziel zunächst Microsoft Edge auf dem Surface vorsehen; konkrete Browserwahl noch bestätigen.
+- Dienst unter dem normalen Windows-Benutzer ausführen, ausschließlich auf Loopback binden, keine Freigabe im LAN. Stabile lokale Origin für Hello/WebAuthn verwenden.
+- Host-/Origin-Prüfung, Schutz vor DNS-Rebinding und CSRF sowie geschützte Sitzungen auch bei localhost vorsehen. Keine offenen CORS-Freigaben.
+- Fachlogik unabhängig von Oberfläche, Datenbank und Export halten. Explizite Datenbankschemaversionen und sichere Migrationen vorsehen.
+- Keine SQLCipher-, Kryptografie-, WebAuthn- oder Exportbibliothek verbindlich wählen, bevor Zielplattform, Lizenz und verfügbare Funktionen überprüft sind.
+
+## Skills und benötigte Kompetenzen
+
+Die folgende Liste unterscheidet vorhandene Skills von Kompetenzbereichen. Nicht vorhandene Skills nicht als installiert ausgeben und nicht ungefragt installieren.
+
+| Skill bzw. Kompetenz | Einsatz |
+| --- | --- |
+| `sites:sites` – vorhandener Skill | Bei späterer Umsetzung der Browseroberfläche die Regeln für lokale Repository-Arbeit und lokale Vorschau nutzen. Wegen des ausdrücklichen lokalen Betriebs keine Registrierung, Veröffentlichung oder Synchronisierung mit Sites-Hosting. |
+| Windows-Sicherheit und lokale Authentifizierung – benötigte Kompetenz, kein dedizierter Skill verfügbar | Windows Hello/WebAuthn, Benutzerverifikation, DPAPI bzw. geeigneter Schlüsselschutz, PIN, Sitzungen und Wiederherstellung. Aktuelle Microsoft- und Standarddokumentation prüfen. |
+| Kryptografie und verschlüsselte Datensicherung – benötigte Kompetenz, kein dedizierter Skill verfügbar | Authentifizierte Verschlüsselung, Schlüsselhierarchie, KDF, Schlüsselwechsel, Backupformat und sichere Wiederherstellung. |
+| Lokale Datenbank und Migrationen – benötigte Kompetenz, kein dedizierter Skill verfügbar | SQLite, konsistente Regelstände, Transaktionen, Sicherungen und vollständiger Datenlebenszyklus. |
+| Touchbedienung und Barrierefreiheit – benötigte Kompetenz, kein dedizierter Skill verfügbar | Surface-Layout, Tabellenbedienung, Tastatur, Bildschirmtastatur und Skalierung. |
+| PDF-/DOCX-Erzeugung – benötigte Kompetenz, kein dedizierter Skill verfügbar | Offline-Export mit konsistenten Daten, mehrseitigen Tabellen und guter Druckgestaltung. |
+| Fachliche Tests und Windows-Integrationstests – benötigte Kompetenz, kein dedizierter Skill verfügbar | Rechengrenzen, Sperren, Verschlüsselung, Sicherung/Wiederherstellung und echter Hello-Test am Surface. |
+
+Der vorhandene Sites-Skill liegt derzeit unter `C:/Users/flowi/.codex/plugins/cache/openai-curated-remote/sites/1.1.2/skills/sites/SKILL.md`; bei späteren Sitzungen den aktuellen Skill-Katalog verwenden. Keine Bildgenerierung oder externen Integrationen sind für diese Anwendung erforderlich.
+
+## Prüfungen vor Abnahme
+
+- Fachlogik: Quotient, null Wörter, null Fehler, exakte Stufengrenzen, direkt darüber/darunter, beide Abzugssysteme, Notengrenzen, Dezimalpunkte, fehlende Ergebnisse und Durchschnitt.
+- Historie: Änderungen an Schulform, Klassenliste oder Notenschlüssel verändern frühere Klausuren nicht stillschweigend.
+- Datensicherheit: falsche PIN, Verzögerung bei Fehlversuchen, direkte API-Aufrufe im gesperrten Zustand, abgebrochenes Hello, wiederholte Challenge, falsche Origin, Inaktivität und Standby.
+- Verschlüsselung: Datenbank, Journale und Sicherungen enthalten keine personenbezogenen Klartexte; manipulierte verschlüsselte Daten werden abgewiesen.
+- Sicherung: vollständiger Rundlauf, falsches Wiederherstellungsgeheimnis, beschädigte Datei, Formatversion, Neuinstallation, abgebrochener Import und atomare Übernahme.
+- Löschung: getrennte Löschmodi, verbliebene Sicherungen, Schlüsselzuordnung und keine Löschung außerhalb der vorgesehenen Verzeichnisse.
+- Export: PDF und DOCX inhaltlich gleich, Umlaute, viele Schüler/Aufgaben, lesbare Seitenumbrüche und vollständiger Notenspiegel.
+- Zielgerät: vollständig offline, tatsächliches Windows Hello, Touch, Bildschirmtastatur, Skalierung, Installation und erneuter Start.
+- Nicht verfügbare Hardwaretests ausdrücklich als ungeprüft kennzeichnen. Keine erfolgreiche Windows-Hello-Unterstützung allein aufgrund eines Mocks behaupten.
+
+## Noch offene fachliche Entscheidungen
+
+- Welche Notenskalen sind nötig: 1–6, 0–15 oder beide? Wie lautet der Standard-Notenschlüssel?
+- Welche Rundungsregeln und welche Schrittweite für Aufgabenpunkte gelten?
+- Sind zusätzliche Grenzen für den Abzug gewünscht, beispielsweise maximal eine Note oder maximal zwei Notenpunkte unabhängig von der Tabelle?
+- Gewünschte Inaktivitätsdauer, PIN-Mindestlänge und genaue Einrichtung des Wiederherstellungsschlüssels.
+- Manuelle Sicherungen sind vorgesehen; automatische Häufigkeit und Aufbewahrung sind noch nicht festgelegt.
+
+Diese Punkte bei späterer Umsetzung gezielt klären oder klar als änderbare Vorschläge darstellen. Die Planung dieser Datei wird dadurch nicht blockiert.
+
+## Technische Primärquellen
+
+Geprüft am 1. November 2026; vor Implementierung erneut auf aktuelle Unterstützung prüfen.
+
+- Microsoft: [WebAuthn APIs und Windows Hello](https://learn.microsoft.com/en-us/windows/security/identity-protection/hello-for-business/webauthn-apis).
+- Chromium: [Origins, die WebAuthn unterstützen, einschließlich localhost](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/content/browser/webauth/origins.md).
+- W3C: [Secure Contexts](https://www.w3.org/TR/secure-contexts/).
+- Microsoft: [CryptProtectData / DPAPI, Benutzerbindung und Einschränkungen](https://learn.microsoft.com/en-us/windows/desktop/api/dpapi/nf-dpapi-cryptprotectdata).
