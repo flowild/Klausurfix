@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { registerHello, unlockHello } from "./hello.js";
+import { createCoverSheetEditor } from "./cover-sheet.js";
 
 // Global App State
 const state = {
@@ -7,6 +8,7 @@ const state = {
   isUnlocked: false,
   currentView: "dashboard",
   currentExamId: null,
+  examListView: "dashboard",
   activeExam: null,
   activeExamEntries: [],
   classes: [],
@@ -59,6 +61,12 @@ const parseGermanNumber = (str) => {
   return isNaN(val) ? null : val;
 };
 
+const formatExamDate = date => {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" })
+    .format(new Date(year, month - 1, day, 12));
+};
+
 export function showToast(message, type = "info") {
   const container = document.getElementById("toastContainer");
   const toast = document.createElement("div");
@@ -71,10 +79,21 @@ export function showToast(message, type = "info") {
   }, 3500);
 }
 
+const coverSheetEditor = createCoverSheetEditor({ api, notify: showToast, beforeOpen: flushPendingSave });
+const coverSheetOffer = document.getElementById("coverSheetOffer");
+for (const id of ["matrixCoverSheetBtn", "auswertungCoverSheetBtn"]) {
+  document.getElementById(id).addEventListener("click", () => {
+    if (state.activeExam?.id === state.currentExamId)
+      coverSheetEditor.open(state.currentExamId, { readOnly: state.activeExam.isArchived });
+  });
+}
+
 // Router & View Switcher
 export function switchView(viewName, historyMode = "push") {
+  if (viewName !== "eingabetabelle" && coverSheetOffer.open) coverSheetOffer.close();
   const sensitiveView = viewName === "setup" || viewName === "unlock" || viewName === "stopped";
-  const route = { klausurfix: true, view: viewName, examId: ["eingabetabelle", "auswertung"].includes(viewName) ? state.currentExamId : null };
+  const route = { klausurfix: true, view: viewName, examId: ["eingabetabelle", "auswertung"].includes(viewName) ? state.currentExamId : null,
+    examListView: state.examListView };
   if (historyMode !== "none") {
     const url = `#/${viewName}${route.examId ? `/${encodeURIComponent(route.examId)}` : ""}`;
     const current = history.state;
@@ -84,7 +103,7 @@ export function switchView(viewName, historyMode = "push") {
   state.currentView = viewName;
   document.querySelectorAll(".view").forEach(el => el.classList.remove("active"));
   document.querySelectorAll(".nav-btn").forEach(el => {
-    el.classList.toggle("active", el.dataset.view === viewName);
+    el.classList.toggle("active", el.dataset.view === (viewName === "archiv" ? "dashboard" : viewName));
   });
 
   const header = document.getElementById("appHeader");
@@ -101,6 +120,7 @@ export function switchView(viewName, historyMode = "push") {
 
   // Load view-specific data
   if (viewName === "dashboard") loadDashboard();
+  else if (viewName === "archiv") loadExamArchive();
   else if (viewName === "schulformen") loadSchulformen();
   else if (viewName === "klassen") loadKlassen();
   else if (viewName === "klausurNeu") prepareNewExamForm();
@@ -117,14 +137,15 @@ window.addEventListener("popstate", async event => {
     try { await flushPendingSave(); }
     catch (err) {
       showToast(err.message || "Bitte die Eingaben prüfen.", "error");
-      const current = { klausurfix: true, view: "eingabetabelle", examId: state.currentExamId };
+      const current = { klausurfix: true, view: "eingabetabelle", examId: state.currentExamId, examListView: state.examListView };
       history.pushState(current, "", `#/eingabetabelle/${encodeURIComponent(state.currentExamId)}`);
       return;
     }
   }
+  if (["eingabetabelle", "auswertung"].includes(route.view)) state.examListView = route.examListView === "archiv" ? "archiv" : "dashboard";
   if (route.view === "eingabetabelle" && route.examId) openExamMatrix(route.examId, true);
   else if (route.view === "auswertung" && route.examId) openExamAuswertung(route.examId, true);
-  else if (["dashboard", "klassen", "schulformen", "klausurNeu", "settings"].includes(route.view)) switchView(route.view, "none");
+  else if (["dashboard", "archiv", "klassen", "schulformen", "klausurNeu", "settings"].includes(route.view)) switchView(route.view, "none");
   else switchView("dashboard", "replace");
 });
 
@@ -145,9 +166,10 @@ async function init() {
       switchView("unlock");
     } else {
       const route = history.state;
+      if (["eingabetabelle", "auswertung"].includes(route?.view)) state.examListView = route.examListView === "archiv" ? "archiv" : "dashboard";
       if (route?.klausurfix && route.view === "eingabetabelle" && route.examId) openExamMatrix(route.examId, true);
       else if (route?.klausurfix && route.view === "auswertung" && route.examId) openExamAuswertung(route.examId, true);
-      else if (route?.klausurfix && ["dashboard", "klassen", "schulformen", "klausurNeu", "settings"].includes(route.view)) switchView(route.view, "none");
+      else if (route?.klausurfix && ["dashboard", "archiv", "klassen", "schulformen", "klausurNeu", "settings"].includes(route.view)) switchView(route.view, "none");
       else switchView("dashboard", "replace");
     }
   } catch (err) {
@@ -304,7 +326,10 @@ document.getElementById("shutdownBtn").addEventListener("click", async () => {
     state.activeExamEntries = [];
     state.classes = [];
     state.exams = [];
+    state.examListView = "dashboard";
     document.getElementById("matrixTableContainer").replaceChildren();
+    document.getElementById("dashboardExamsList").replaceChildren();
+    document.getElementById("archiveExamsList").replaceChildren();
     switchView("stopped");
   } catch (err) {
     showToast(err.message || "Klausurfix konnte nicht beendet werden.", "error");
@@ -319,7 +344,8 @@ window.addEventListener("klausurfix:locked", () => {
   state.activeExamEntries = [];
   state.classes = [];
   state.exams = [];
-  for (const id of ["matrixTableContainer", "backupsListTable"]) {
+  state.examListView = "dashboard";
+  for (const id of ["matrixTableContainer", "backupsListTable", "dashboardExamsList", "archiveExamsList"]) {
     document.getElementById(id).replaceChildren();
   }
   switchView("unlock");
@@ -346,55 +372,80 @@ document.querySelectorAll(".nav-btn").forEach(btn => {
 document.getElementById("logoBtn").addEventListener("click", () => switchView("dashboard"));
 
 // ==========================================
-// Dashboard (Übersicht)
+// Klausurenübersicht
 // ==========================================
-async function loadDashboard() {
-  try {
-    const [classes, exams] = await Promise.all([
-      api.getClasses(),
-      api.getExams()
-    ]);
-    state.classes = classes;
-    state.exams = exams;
+let examListRevision = 0;
 
-    const tbody = document.getElementById("dashboardExamsList");
+async function loadDashboard() {
+  await loadExamList(false);
+}
+
+async function loadExamArchive() {
+  await loadExamList(true);
+}
+
+async function loadExamList(archived) {
+  const revision = ++examListRevision;
+  try {
+    const exams = await api.getExams(archived);
+    if (revision !== examListRevision || state.currentView !== (archived ? "archiv" : "dashboard")) return;
+
+    const tbody = document.getElementById(archived ? "archiveExamsList" : "dashboardExamsList");
     tbody.innerHTML = "";
 
     if (exams.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--gray-500); padding: 2rem;">Noch keine Klausuren angelegt.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--gray-500); padding: 2rem;">${archived ? "Noch keine Klausuren archiviert." : "Noch keine aktiven Klausuren vorhanden."}</td></tr>`;
       return;
     }
 
     exams.forEach(ex => {
       const tr = document.createElement("tr");
+      tr.className = "exam-row";
       tr.innerHTML = `
-        <td style="font-weight: 600;">${escapeHtml(ex.title)}</td>
+        <td><a class="exam-row-link" href="#/eingabetabelle/${encodeURIComponent(ex.id)}" aria-label="${escapeHtml(ex.title)}, ${escapeHtml(ex.className)}: Eingabetabelle öffnen">${escapeHtml(ex.title)}</a>${archived ? ' <span class="archive-badge">Archiviert</span>' : ""}</td>
         <td>${escapeHtml(ex.className)}</td>
         <td>${escapeHtml(ex.schulformName)}</td>
-        <td>${new Date(ex.date).toLocaleDateString("de-DE")}</td>
-        <td>${ex.tasks.length} Aufgaben</td>
+        <td>${escapeHtml(formatExamDate(ex.date))}</td>
+        <td>${ex.tasks.length} ${ex.tasks.length === 1 ? "Aufgabe" : "Aufgaben"}</td>
         <td>${formatNumber(ex.totalMaxPoints, 1)} P</td>
-        <td style="text-align: right;">
-          <button class="btn btn-primary btn-sm open-matrix-btn" data-id="${ex.id}" style="margin-right: 0.4rem;">Tabelle</button>
-          <button class="btn btn-secondary btn-sm open-auswertung-btn" data-id="${ex.id}">Auswertung</button>
-        </td>
+        <td class="exam-archive-cell"><button type="button" class="btn btn-secondary exam-archive-btn" aria-label="${escapeHtml(ex.title)}, ${escapeHtml(ex.className)}: ${archived ? "wiederherstellen" : "archivieren"}">${archived ? "Wiederherstellen" : "Archivieren"}</button></td>
       `;
+      tr.addEventListener("click", event => {
+        if (event.target.closest("button")) return;
+        if (event.target.closest("a")) event.preventDefault();
+        state.examListView = archived ? "archiv" : "dashboard";
+        openExamMatrix(ex.id);
+      });
+      const archiveButton = tr.querySelector(".exam-archive-btn");
+      archiveButton.addEventListener("click", async event => {
+        event.stopPropagation();
+        archiveButton.disabled = true;
+        try {
+          await api.setExamArchived(ex.id, !archived);
+          if (state.currentView === (archived ? "archiv" : "dashboard")) {
+            const restoreFocus = document.activeElement === archiveButton;
+            tr.remove();
+            if (!tbody.querySelector(".exam-row"))
+              tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--gray-500); padding: 2rem;">${archived ? "Noch keine Klausuren archiviert." : "Noch keine aktiven Klausuren vorhanden."}</td></tr>`;
+            await loadExamList(archived);
+            if (restoreFocus && state.currentView === (archived ? "archiv" : "dashboard") && document.activeElement === document.body)
+              (tbody.querySelector(".exam-archive-btn") || document.getElementById(archived ? "archiveBackBtn" : "openExamArchiveBtn")).focus();
+          }
+          showToast(archived ? "Klausur wiederhergestellt." : "Klausur archiviert.", "success");
+        } catch (err) { showToast(err.message, "error"); }
+        finally { archiveButton.disabled = false; }
+      });
       tbody.appendChild(tr);
     });
-
-    tbody.querySelectorAll(".open-matrix-btn").forEach(b => {
-      b.addEventListener("click", () => openExamMatrix(b.dataset.id));
-    });
-    tbody.querySelectorAll(".open-auswertung-btn").forEach(b => {
-      b.addEventListener("click", () => openExamAuswertung(b.dataset.id));
-    });
   } catch (err) {
-    showToast(err.message, "error");
+    if (revision === examListRevision && state.currentView === (archived ? "archiv" : "dashboard"))
+      showToast(err.message, "error");
   }
 }
 
 document.getElementById("dashNewExamBtn").addEventListener("click", () => switchView("klausurNeu"));
-document.getElementById("dashNewClassBtn").addEventListener("click", () => switchView("klassen"));
+document.getElementById("openExamArchiveBtn").addEventListener("click", () => switchView("archiv"));
+document.getElementById("archiveBackBtn").addEventListener("click", () => switchView("dashboard"));
 
 // ==========================================
 // Schulformen & Bewertungsprofile
@@ -925,6 +976,8 @@ function updateTotalExamPoints() {
 
 document.getElementById("createExamForm").addEventListener("submit", async (e) => {
   e.preventDefault();
+  const submitButton = e.currentTarget.querySelector('button[type="submit"]');
+  if (submitButton.disabled) return;
   const classId = document.getElementById("newExamClass").value;
   const date = document.getElementById("newExamDate").value;
   const title = document.getElementById("newExamTitle").value.trim();
@@ -941,34 +994,74 @@ document.getElementById("createExamForm").addEventListener("submit", async (e) =
     return;
   }
 
+  submitButton.disabled = true;
   try {
     const exam = await api.createExam(classId, title, date, tasks);
     showToast("Klausur angelegt!", "success");
-    openExamMatrix(exam.id);
+    if (!state.isUnlocked || state.currentView !== "klausurNeu") return;
+    state.examListView = "dashboard";
+    await openExamMatrix(exam.id);
+    if (state.isUnlocked && state.currentView === "eingabetabelle" && state.activeExam?.id === exam.id) {
+      coverSheetOffer.dataset.examId = exam.id;
+      coverSheetOffer.showModal();
+    }
   } catch (err) {
     showToast(err.message, "error");
+  } finally {
+    submitButton.disabled = false;
   }
 });
+
+document.getElementById("skipCoverSheetBtn").addEventListener("click", () => coverSheetOffer.close());
+document.getElementById("createCoverSheetNowBtn").addEventListener("click", () => {
+  const examId = coverSheetOffer.dataset.examId;
+  coverSheetOffer.close();
+  if (state.isUnlocked && state.currentView === "eingabetabelle" && state.currentExamId === examId)
+    coverSheetEditor.open(examId);
+});
+coverSheetOffer.addEventListener("cancel", e => { e.preventDefault(); coverSheetOffer.close(); });
 
 // ==========================================
 // Eingabetabelle (Score Matrix)
 // ==========================================
 async function openExamMatrix(examId, fromHistory = false) {
   state.currentExamId = examId;
+  state.activeExam = null;
+  state.activeExamEntries = [];
+  document.getElementById("matrixTableContainer").replaceChildren();
+  document.getElementById("matrixExamTitle").textContent = "Klausur wird geladen …";
+  document.getElementById("matrixExamMeta").textContent = "";
+  document.getElementById("matrixArchivedBadge").hidden = true;
+  document.getElementById("matrixArchivedHint").hidden = true;
+  document.getElementById("matrixKeyboardHint").hidden = true;
+  document.getElementById("saveBadge").hidden = true;
+  document.getElementById("matrixCoverSheetBtn").disabled = true;
+  document.getElementById("matrixToAuswertungBtn").disabled = true;
   switchView("eingabetabelle", fromHistory ? "none" : "push");
 
   try {
     const exam = await api.getExam(examId);
+    if (state.currentExamId !== examId || state.currentView !== "eingabetabelle") return;
     state.activeExam = exam;
     state.activeExamEntries = exam.studentEntries || [];
 
     document.getElementById("matrixExamTitle").textContent = exam.title;
+    const archived = !!exam.isArchived;
+    document.getElementById("matrixArchivedBadge").hidden = !archived;
+    document.getElementById("matrixArchivedHint").hidden = !archived;
+    document.getElementById("matrixKeyboardHint").hidden = archived;
+    document.getElementById("saveBadge").hidden = archived;
+    document.getElementById("matrixCoverSheetBtn").textContent = archived ? "Deckblatt ansehen" : "Deckblatt erstellen";
+    document.getElementById("matrixCoverSheetBtn").disabled = false;
+    document.getElementById("matrixToAuswertungBtn").disabled = false;
     document.getElementById("matrixExamMeta").textContent =
       `${exam.className} | ${exam.schulformName} | ${new Date(exam.date).toLocaleDateString("de-DE")} | Gesamt: ${formatNumber(exam.totalMaxPoints, 1)} Punkte`;
     document.getElementById("matrixStudentCount").textContent = `${state.activeExamEntries.length} Schüler`;
 
     renderMatrixTable(exam, state.activeExamEntries);
   } catch (err) {
+    if (state.currentExamId === examId && state.currentView === "eingabetabelle")
+      document.getElementById("matrixExamTitle").textContent = "Klausur konnte nicht geladen werden";
     showToast(err.message, "error");
   }
 }
@@ -977,6 +1070,8 @@ function renderMatrixTable(exam, entries) {
   const container = document.getElementById("matrixTableContainer");
   const totalMax = exam.totalMaxPoints;
   const profile = exam.gradingProfileSnapshot;
+  const readOnly = exam.isArchived ? 'readonly aria-readonly="true"' : "";
+  const disabled = exam.isArchived ? "disabled" : "";
 
   let tableHtml = `
     <table class="matrix-table" id="scoreMatrix">
@@ -1019,7 +1114,7 @@ function renderMatrixTable(exam, entries) {
         <td>
           <input type="text" class="matrix-input task-pts-cell"
             data-task="${t.taskNumber}" data-max="${t.maxPoints}"
-            value="${valStr}" placeholder="0" inputmode="decimal">
+            value="${valStr}" placeholder="0" inputmode="decimal" ${readOnly}>
         </td>
       `;
     });
@@ -1030,17 +1125,17 @@ function renderMatrixTable(exam, entries) {
         <td class="calc-cell row-init-grade">-</td>
         <td>
           <input type="number" class="matrix-input row-words-cell" style="width: 70px;"
-            value="${entry.wordCount !== null && entry.wordCount !== undefined ? entry.wordCount : ''}" placeholder="Wörter" min="0">
+            value="${entry.wordCount !== null && entry.wordCount !== undefined ? entry.wordCount : ''}" placeholder="Wörter" min="0" ${readOnly}>
         </td>
         <td>
           <input type="number" class="matrix-input row-errors-cell" style="width: 60px;"
-            value="${entry.errorCount !== null && entry.errorCount !== undefined ? entry.errorCount : ''}" placeholder="Fehler" min="0">
+            value="${entry.errorCount !== null && entry.errorCount !== undefined ? entry.errorCount : ''}" placeholder="Fehler" min="0" ${readOnly}>
         </td>
         <td class="calc-cell row-fq">-</td>
         <td class="calc-cell row-deduction">-</td>
         <td class="final-grade-cell row-final-grade">-</td>
         <td>
-          <select class="matrix-select row-status-select">
+          <select class="matrix-select row-status-select" ${disabled}>
             <option value="1" ${entry.status === 1 || entry.status === 4 ? 'selected' : ''}>Teilgenommen</option>
             <option value="3" ${entry.status === 2 || entry.status === 3 ? 'selected' : ''}>Nicht teilgenommen</option>
           </select>
@@ -1058,6 +1153,7 @@ function renderMatrixTable(exam, entries) {
   table.querySelectorAll("tbody tr").forEach((tr, rowIdx) => {
     recalculateRow(tr, exam, entries[rowIdx]);
 
+    if (exam.isArchived) return;
     tr.querySelectorAll(".matrix-input, .row-status-select").forEach(input => {
       input.addEventListener("input", () => {
         if (!collectRowData(tr, exam, entries[rowIdx])) {
@@ -1182,6 +1278,7 @@ function triggerAutoSave() {
 }
 
 async function flushPendingSave() {
+  await coverSheetEditor.flush();
   if (document.querySelector('#scoreMatrix [aria-invalid="true"]'))
     throw new Error("Bitte ungültige Eingaben korrigieren.");
   if (state.saveAction) state.saveAction();
@@ -1192,7 +1289,7 @@ window.addEventListener("beforeunload", e => {
   if (state.saveAction || state.isSaving || state.saveFailed || document.querySelector('#scoreMatrix [aria-invalid="true"]')) { e.preventDefault(); e.returnValue = ""; }
 });
 
-document.getElementById("matrixBackBtn").addEventListener("click", () => switchView("dashboard"));
+document.getElementById("matrixBackBtn").addEventListener("click", () => switchView(state.examListView));
 document.getElementById("matrixToAuswertungBtn").addEventListener("click", () => openExamAuswertung(state.currentExamId));
 
 // ==========================================
@@ -1202,6 +1299,14 @@ async function openExamAuswertung(examId, fromHistory = false) {
   try { await flushPendingSave(); }
   catch { showToast("Die Eingaben konnten nicht gespeichert werden.", "error"); if (fromHistory) switchView(state.currentView, "push"); return; }
   state.currentExamId = examId;
+  state.activeExam = null;
+  document.getElementById("auswertungExamTitle").textContent = "Auswertung wird geladen …";
+  document.getElementById("auswertungExamMeta").textContent = "";
+  document.getElementById("auswertungArchivedBadge").hidden = true;
+  document.getElementById("auswertungCoverSheetBtn").disabled = true;
+  document.getElementById("recalculateBtn").disabled = true;
+  document.getElementById("exportPdfBtn").disabled = true;
+  document.getElementById("exportDocxBtn").disabled = true;
   switchView("auswertung", fromHistory ? "none" : "push");
 
   try {
@@ -1209,9 +1314,17 @@ async function openExamAuswertung(examId, fromHistory = false) {
       api.getExam(examId),
       api.getExamSummary(examId)
     ]);
+    if (state.currentExamId !== examId || state.currentView !== "auswertung") return;
     state.activeExam = exam;
 
     document.getElementById("auswertungExamTitle").textContent = `Auswertung: ${exam.title}`;
+    document.getElementById("auswertungArchivedBadge").hidden = !exam.isArchived;
+    document.getElementById("recalculateBtn").disabled = !!exam.isArchived;
+    document.getElementById("recalculateBtn").title = exam.isArchived ? "Zum Bearbeiten die Klausur im Archiv wiederherstellen." : "";
+    document.getElementById("auswertungCoverSheetBtn").disabled = false;
+    document.getElementById("auswertungCoverSheetBtn").textContent = exam.isArchived ? "Deckblatt ansehen" : "Deckblatt erstellen";
+    document.getElementById("exportPdfBtn").disabled = false;
+    document.getElementById("exportDocxBtn").disabled = false;
     document.getElementById("auswertungExamMeta").textContent =
       `Klasse ${exam.className} | Schulform: ${exam.schulformName} | Datum: ${new Date(exam.date).toLocaleDateString("de-DE")}`;
 
@@ -1237,6 +1350,8 @@ async function openExamAuswertung(examId, fromHistory = false) {
       </ul>
     `;
   } catch (err) {
+    if (state.currentExamId === examId && state.currentView === "auswertung")
+      document.getElementById("auswertungExamTitle").textContent = "Auswertung konnte nicht geladen werden";
     showToast(err.message, "error");
   }
 }

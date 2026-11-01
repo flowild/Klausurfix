@@ -76,7 +76,12 @@ app.Use(async (context, next) =>
         context.Response.Headers.Pragma = "no-cache";
     }
 
-    await next();
+    try { await next(); }
+    catch (ArchivedExamReadOnlyException)
+    {
+        context.Response.StatusCode = StatusCodes.Status409Conflict;
+        await context.Response.WriteAsJsonAsync(new { error = ArchivedExamReadOnlyException.Description });
+    }
 });
 
 // Authorization Middleware: check lock state on /api/ endpoints (except /api/setup and /api/auth)
@@ -441,10 +446,73 @@ app.MapDelete("/api/klassen/{classId}/students/{studentId}", (DatabaseContext db
 
 #region Klausuren APIs
 
-app.MapGet("/api/klausuren", (DatabaseContext db) =>
+app.MapGet("/api/deckblatt/operatoren", () => Results.Ok(new { source = OperatorCatalog.Source, operators = OperatorCatalog.All }));
+app.MapGet("/api/deckblatt/logo", () => Results.File(CoverSheetExports.TemplateLogo(), "image/png"));
+
+app.MapGet("/api/klausuren/{id}/deckblatt", (string id, DatabaseContext db) =>
 {
-    var list = db.GetExams();
+    var exam = db.GetExamById(id);
+    return exam == null ? Results.NotFound() : Results.Ok(CoverSheetDocument.Create(exam));
+});
+
+app.MapPut("/api/klausuren/{id}/deckblatt", (string id, SaveCoverSheetRequest req, DatabaseContext db) =>
+{
+    var exam = db.GetExamById(id);
+    if (exam == null) return Results.NotFound();
+    if (exam.IsArchived) return Results.Conflict(new { error = ArchivedExamReadOnlyException.Description });
+    if (req.OperatorIds == null || req.OperatorIds.Count > 6 || req.OperatorIds.Distinct().Count() != req.OperatorIds.Count)
+        return Results.BadRequest(new { error = "Bitte bis zu sechs unterschiedliche Operatoren für die Fußzeile auswählen." });
+    var operators = new List<ExamOperator>();
+    foreach (var operatorId in req.OperatorIds)
+    {
+        // Preserve the definitions already frozen for this exam.
+        var op = exam.CoverSheet?.Operators.FirstOrDefault(o => o.Id == operatorId)
+            ?? OperatorCatalog.All.FirstOrDefault(o => o.Id == operatorId);
+        if (op == null) return Results.BadRequest(new { error = "Unbekannter Operator." });
+        operators.Add(op);
+    }
+    var settings = new CoverSheet
+    {
+        Subject = req.Subject, Instructions = req.Instructions,
+        Tasks = req.SaveEarnedPoints || req.Tasks == null ? req.Tasks! : req.Tasks.Select(t => t == null ? null! : t with
+        {
+            EarnedPoints = exam.CoverSheet?.Tasks.FirstOrDefault(old => old.TaskNumber == t.TaskNumber)?.EarnedPoints
+        }).ToList(),
+        UseTemplateLogo = req.UseTemplateLogo, ShowGradeKey = req.ShowGradeKey,
+        ShowDeductionRules = req.ShowDeductionRules, ShowWordCount = req.ShowWordCount,
+        DeductionNotice = req.SaveDeductionNotice ? req.DeductionNotice : exam.CoverSheet?.DeductionNotice,
+        Operators = operators, OperatorSource = exam.CoverSheet?.OperatorSource ?? OperatorCatalog.Source
+    };
+    try { settings.Validate(exam); }
+    catch (InvalidOperationException e) { return Results.BadRequest(new { error = e.Message }); }
+    var updated = exam with { CoverSheet = settings, UpdatedAt = DateTimeOffset.UtcNow };
+    db.SaveExam(updated);
+    return Results.Ok(CoverSheetDocument.Create(updated));
+});
+
+app.MapGet("/api/klausuren/{id}/deckblatt/pdf", (string id, DatabaseContext db, PdfExportService service) =>
+{
+    var exam = db.GetExamById(id);
+    return exam == null ? Results.NotFound() : Results.File(service.GenerateCoverSheet(exam), "application/pdf", $"Deckblatt_{exam.Date:yyyy-MM-dd}.pdf");
+});
+
+app.MapGet("/api/klausuren/{id}/deckblatt/docx", (string id, DatabaseContext db, DocxExportService service) =>
+{
+    var exam = db.GetExamById(id);
+    return exam == null ? Results.NotFound() : Results.File(service.GenerateCoverSheet(exam),
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document", CoverSheetFileName.Docx(exam));
+});
+
+app.MapGet("/api/klausuren", (DatabaseContext db, bool? archived) =>
+{
+    var list = archived == true ? db.GetExams(includeArchived: true).Where(e => e.IsArchived).ToList() : db.GetExams();
     return Results.Ok(list);
+});
+
+app.MapPut("/api/klausuren/{id}/archivierung", (string id, ArchiveExamRequest req, DatabaseContext db) =>
+{
+    if (!req.Archived.HasValue) return Results.BadRequest(new { error = "Archivstatus fehlt." });
+    return db.SetExamArchived(id, req.Archived.Value) ? Results.Ok(new { archived = req.Archived.Value }) : Results.NotFound();
 });
 
 app.MapGet("/api/klausuren/{id}", (DatabaseContext db, string id) =>
@@ -511,6 +579,7 @@ app.MapPost("/api/klausuren/{id}/entries", (string id, List<ExamStudentEntry> en
 {
     var exam = db.GetExamById(id);
     if (exam == null) return Results.NotFound();
+    if (exam.IsArchived) return Results.Conflict(new { error = ArchivedExamReadOnlyException.Description });
 
     if (entries.Count != exam.StudentEntries.Count || entries.Select(e => e.StudentId).Distinct().Count() != entries.Count ||
         entries.Any(e => !exam.StudentEntries.Any(original => original.StudentId == e.StudentId)) ||
@@ -544,6 +613,7 @@ app.MapPost("/api/klausuren/{id}/recalculate", (string id, RecalculateRequest? r
 {
     var exam = db.GetExamById(id);
     if (exam == null) return Results.NotFound();
+    if (exam.IsArchived) return Results.Conflict(new { error = ArchivedExamReadOnlyException.Description });
 
     GradingProfile profile;
     if (req?.NewProfile != null)
@@ -721,6 +791,10 @@ public record GradePreviewRequest(decimal Percentage, List<GradeBoundary> GradeK
 public record CreateExamTaskDto(string Name, decimal MaxPoints);
 public record CreateExamRequest(string ClassId, string Title, DateOnly Date, List<CreateExamTaskDto> Tasks);
 public record RecalculateRequest(GradingProfile? NewProfile);
+public record ArchiveExamRequest(bool? Archived);
+public record SaveCoverSheetRequest(string Subject, string Instructions, bool UseTemplateLogo, bool ShowGradeKey,
+    bool ShowDeductionRules, bool ShowWordCount, List<CoverSheetTask> Tasks, List<string> OperatorIds,
+    string? DeductionNotice = null, bool SaveDeductionNotice = false, bool SaveEarnedPoints = false);
 
 #endregion
 

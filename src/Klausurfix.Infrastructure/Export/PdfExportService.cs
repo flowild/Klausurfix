@@ -9,6 +9,8 @@ using QuestPDF.Infrastructure;
 
 public class PdfExportService
 {
+    public byte[] GenerateCoverSheet(Exam exam) => CoverSheetExports.Pdf(CoverSheetDocument.Create(exam));
+
     static PdfExportService()
     {
         QuestPDF.Settings.License = LicenseType.Community;

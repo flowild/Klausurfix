@@ -142,11 +142,27 @@ export const api = {
   },
 
   // Klausuren
-  getExams() {
-    return this.request("/api/klausuren");
+  getExams(archived = false) {
+    return this.request(archived ? "/api/klausuren?archived=true" : "/api/klausuren");
+  },
+  setExamArchived(id, archived) {
+    return this.request(`/api/klausuren/${encodeURIComponent(id)}/archivierung`, {
+      method: "PUT", body: JSON.stringify({ archived })
+    });
   },
   getExam(id) {
     return this.request(`/api/klausuren/${id}`);
+  },
+  getCoverSheet(id) {
+    return this.request(`/api/klausuren/${encodeURIComponent(id)}/deckblatt`);
+  },
+  getOperators() {
+    return this.request("/api/deckblatt/operatoren");
+  },
+  saveCoverSheet(id, settings) {
+    return this.request(`/api/klausuren/${encodeURIComponent(id)}/deckblatt`, {
+      method: "PUT", body: JSON.stringify(settings)
+    });
   },
   createExam(classId, title, date, tasks) {
     return this.request("/api/klausuren", {

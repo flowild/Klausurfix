@@ -54,6 +54,272 @@ public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Progra
     }
 
     [Fact]
+    public async Task ArchivedExams_CanBeOpenedRestoredAndIncludedInEncryptedBackups()
+    {
+        var recovery = KeyManager.GenerateRecoveryKey();
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/setup/init", new
+        {
+            pin = "123456", recoveryKey = recovery, inactivityTimeoutMinutes = 15
+        })).StatusCode);
+        var db = _factory.Services.GetRequiredService<DatabaseContext>();
+        var exam = new Exam
+        {
+            Title = "Archiv-Testklausur", ClassName = "Testklasse", Date = new DateOnly(2026, 11, 2),
+            Tasks = new() { new(1, "Aufgabe 1", 25m) }, GradingProfileSnapshot = GradingProfile.BeruflichesGymnasium(),
+            StudentEntries = new() { new() { StudentId = "synthetic", StudentName = "Testperson", TaskPoints = new() { [1] = 20m }, WordCount = 200, ErrorCount = 2 } }
+        };
+        exam = exam with { CoverSheet = Klausurfix.Infrastructure.Export.CoverSheetDocument.Defaults(exam) with
+        {
+            Tasks = new() { new(1, "Analysieren Sie das Material.") }
+        } };
+        db.SaveExam(exam);
+        var url = $"/api/klausuren/{exam.Id}/archivierung";
+        Assert.Single((await _client.GetFromJsonAsync<List<Exam>>("/api/klausuren"))!);
+        Assert.Empty((await _client.GetFromJsonAsync<List<Exam>>("/api/klausuren?archived=true"))!);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PutAsJsonAsync(url, new { })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.PutAsJsonAsync("/api/klausuren/fehlt/archivierung", new { archived = true })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PutAsJsonAsync(url, new { archived = true })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PutAsJsonAsync(url, new { archived = true })).StatusCode);
+        Assert.Empty((await _client.GetFromJsonAsync<List<Exam>>("/api/klausuren"))!);
+        var archived = Assert.Single((await _client.GetFromJsonAsync<List<Exam>>("/api/klausuren?archived=true"))!);
+        Assert.True(archived.IsArchived);
+        Assert.Equal(exam.Id, archived.Id);
+        var opened = (await _client.GetFromJsonAsync<Exam>($"/api/klausuren/{exam.Id}"))!;
+        Assert.True(opened.IsArchived);
+        Assert.Equal(20m, opened.StudentEntries[0].TaskPoints[1]);
+        Assert.Equal(exam.CoverSheet.Tasks[0], opened.CoverSheet!.Tasks[0]);
+        Assert.Equal(3m, opened.GradingProfileSnapshot.DeductionTiers[0].Threshold);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/klausuren/{exam.Id}/summary")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/klausuren/{exam.Id}/export/pdf")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/klausuren/{exam.Id}/export/docx")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/klausuren/{exam.Id}/deckblatt/pdf")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/klausuren/{exam.Id}/deckblatt/docx")).StatusCode);
+        var preview = await _client.GetFromJsonAsync<JsonElement>($"/api/klausuren/{exam.Id}/deckblatt");
+        Assert.True(preview.GetProperty("isArchived").GetBoolean());
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync($"/api/klausuren/{exam.Id}/preview-entry", opened.StudentEntries[0])).StatusCode);
+
+        var editedEntry = opened.StudentEntries[0] with { TaskPoints = new() { [1] = 21m } };
+        var blockedEntries = await _client.PostAsJsonAsync($"/api/klausuren/{exam.Id}/entries", new[] { editedEntry });
+        Assert.Equal(HttpStatusCode.Conflict, blockedEntries.StatusCode);
+        Assert.Contains("schreibgeschützt", await blockedEntries.Content.ReadAsStringAsync());
+        var coverRequest = new SaveCoverSheetRequest("Fach", "Neuer Hinweis", true, true, true, true,
+            new() { new(1, "Neue Aufgabenstellung", 12m) }, new() { "erklaeren" }, "Anderer Hinweis", true, true);
+        Assert.Equal(HttpStatusCode.Conflict, (await _client.PutAsJsonAsync($"/api/klausuren/{exam.Id}/deckblatt", coverRequest)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await _client.PostAsJsonAsync($"/api/klausuren/{exam.Id}/recalculate", new { })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await _client.DeleteAsync($"/api/klausuren/{exam.Id}")).StatusCode);
+        // A stale snapshot captured before archiving must also fail inside the transaction.
+        Assert.Throws<ArchivedExamReadOnlyException>(() => db.SaveExam(exam));
+        Assert.Throws<ArchivedExamReadOnlyException>(() => db.DeleteExam(exam.Id));
+        Assert.True(db.GetExamById(exam.Id)!.IsArchived);
+        Assert.Equal(20m, db.GetExamById(exam.Id)!.StudentEntries[0].TaskPoints[1]);
+        Assert.Equal(exam.CoverSheet.Tasks[0], db.GetExamById(exam.Id)!.CoverSheet!.Tasks[0]);
+
+        var noCover = new Exam { Title = "Ohne Deckblatt", Tasks = new() { new(1, "Aufgabe", 10m) } };
+        db.SaveExam(noCover);
+        Assert.True(db.SetExamArchived(noCover.Id, true));
+        var noCoverPreview = await _client.GetFromJsonAsync<JsonElement>($"/api/klausuren/{noCover.Id}/deckblatt");
+        Assert.True(noCoverPreview.GetProperty("isArchived").GetBoolean());
+        Assert.False(noCoverPreview.GetProperty("isSaved").GetBoolean());
+        Assert.Null(db.GetExamById(noCover.Id)!.CoverSheet);
+        Assert.True(db.SetExamArchived(noCover.Id, false));
+        db.DeleteExam(noCover.Id);
+        var backup = await _client.PostAsJsonAsync("/api/backups/download", new { recoveryKey = recovery });
+        Assert.Equal(HttpStatusCode.OK, backup.StatusCode);
+        var bytes = await backup.Content.ReadAsByteArrayAsync();
+        Assert.Equal(HttpStatusCode.OK, (await _client.PutAsJsonAsync(url, new { archived = false })).StatusCode);
+        Assert.False(db.GetExamById(exam.Id)!.IsArchived);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync($"/api/klausuren/{exam.Id}/entries", new[] { editedEntry })).StatusCode);
+        Assert.Equal(21m, db.GetExamById(exam.Id)!.StudentEntries[0].TaskPoints[1]);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PutAsJsonAsync($"/api/klausuren/{exam.Id}/deckblatt", coverRequest)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/backups/restore-file", new
+        {
+            recoveryKey = recovery, dataBase64 = Convert.ToBase64String(bytes)
+        })).StatusCode);
+        var restored = db.GetExamById(exam.Id)!;
+        Assert.True(restored.IsArchived);
+        Assert.Equal(20m, restored.StudentEntries[0].TaskPoints[1]);
+        Assert.Equal(exam.CoverSheet.Tasks[0], restored.CoverSheet!.Tasks[0]);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PutAsJsonAsync(url, new { archived = false })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync($"/api/klausuren/{exam.Id}/recalculate", new { })).StatusCode);
+        Assert.Single((await _client.GetFromJsonAsync<List<Exam>>("/api/klausuren"))!);
+        Assert.Empty((await _client.GetFromJsonAsync<List<Exam>>("/api/klausuren?archived=true"))!);
+        Assert.Equal(HttpStatusCode.OK, (await _client.DeleteAsync($"/api/klausuren/{exam.Id}")).StatusCode);
+        Assert.Null(db.GetExamById(exam.Id));
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsync("/api/auth/lock", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _client.GetAsync("/api/klausuren?archived=true")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _client.PutAsJsonAsync(url, new { archived = true })).StatusCode);
+    }
+
+    [Fact]
+    public async Task CoverSheets_AreSavedAsSnapshotsAndExportsRequireAnUnlockedSession()
+    {
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/setup/init", new
+        {
+            pin = "123456", recoveryKey = KeyManager.GenerateRecoveryKey(), inactivityTimeoutMinutes = 15
+        })).StatusCode);
+        var db = _factory.Services.GetRequiredService<DatabaseContext>();
+        var exam = new Exam
+        {
+            Title = "Synthetische Deckblattprüfung", ClassName = "Testklasse", GradingProfileSnapshot = GradingProfile.BeruflichesGymnasium(),
+            Tasks = new() { new(1, "Materialanalyse", 25.5m) },
+            StudentEntries = new() { new() { StudentId = "test", StudentName = "Testperson", TaskPoints = new() { [1] = 20m } } }
+        };
+        db.SaveExam(exam);
+        var endpoint = $"/api/klausuren/{exam.Id}/deckblatt";
+        var template = await _client.GetFromJsonAsync<JsonElement>(endpoint);
+        Assert.False(template.GetProperty("isSaved").GetBoolean());
+        Assert.Null(db.GetExamById(exam.Id)!.CoverSheet);
+        var request = new SaveCoverSheetRequest("Politik und Wirtschaft", "Hilfsmittel: Wörterbuch.", true, true, true, true,
+            new() { new(1, "Erklären Sie die Zusammenhänge.") }, new() { "erklaeren", "diskutieren" });
+        Assert.Equal(HttpStatusCode.OK, (await _client.PutAsJsonAsync(endpoint, request)).StatusCode);
+        var saved = db.GetExamById(exam.Id)!;
+        Assert.Equal(request.Tasks[0].Text, saved.CoverSheet!.Tasks[0].Text);
+        Assert.Equal(20m, saved.StudentEntries[0].TaskPoints[1]);
+        Assert.Equal(3m, saved.GradingProfileSnapshot.DeductionTiers[0].Threshold);
+        Assert.Contains("Begründungszusammenhang", saved.CoverSheet.Operators[0].Definition);
+
+        // A previously frozen definition remains intact when other document fields change.
+        db.SaveExam(saved with { CoverSheet = saved.CoverSheet with
+        {
+            Operators = new() { saved.CoverSheet.Operators[0] with { Definition = "Historisch gespeicherte Definition." }, saved.CoverSheet.Operators[1] }
+        } });
+        Assert.Equal(HttpStatusCode.OK, (await _client.PutAsJsonAsync(endpoint, request with { Subject = "Neues Fach" })).StatusCode);
+        Assert.Equal("Historisch gespeicherte Definition.", db.GetExamById(exam.Id)!.CoverSheet!.Operators[0].Definition);
+
+        var pointsSave = new
+        {
+            subject = "Neues Fach", instructions = "", useTemplateLogo = true, showGradeKey = true,
+            showDeductionRules = true, showWordCount = true, saveEarnedPoints = true, saveDeductionNotice = true,
+            deductionNotice = "Mein Hinweis.", tasks = new[] { new { taskNumber = 1, text = "Erklären Sie die Zusammenhänge.", earnedPoints = "12.75" } },
+            operatorIds = new[] { "erklaeren" }
+        };
+        Assert.Equal(HttpStatusCode.OK, (await _client.PutAsJsonAsync(endpoint, pointsSave)).StatusCode);
+        var pointsSaved = db.GetExamById(exam.Id)!;
+        Assert.Equal(12.75m, pointsSaved.CoverSheet!.Tasks[0].EarnedPoints);
+        Assert.Equal("Mein Hinweis.", pointsSaved.CoverSheet.DeductionNotice);
+        Assert.Equal(20m, pointsSaved.StudentEntries[0].TaskPoints[1]);
+        // An older client that omits the new fields must not erase them.
+        Assert.Equal(HttpStatusCode.OK, (await _client.PutAsJsonAsync(endpoint, request with { Subject = "Neues Fach" })).StatusCode);
+        Assert.Equal(12.75m, db.GetExamById(exam.Id)!.CoverSheet!.Tasks[0].EarnedPoints);
+        Assert.Equal("Mein Hinweis.", db.GetExamById(exam.Id)!.CoverSheet!.DeductionNotice);
+        var invalidPoints = pointsSave with { tasks = new[] { new { taskNumber = 1, text = "", earnedPoints = "25.500001" } } };
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PutAsJsonAsync(endpoint, invalidPoints)).StatusCode);
+        Assert.Equal(12.75m, db.GetExamById(exam.Id)!.CoverSheet!.Tasks[0].EarnedPoints);
+        var zero = pointsSave with { tasks = new[] { new { taskNumber = 1, text = "", earnedPoints = "0" } } };
+        Assert.Equal(HttpStatusCode.OK, (await _client.PutAsJsonAsync(endpoint, zero)).StatusCode);
+        Assert.Equal(0m, db.GetExamById(exam.Id)!.CoverSheet!.Tasks[0].EarnedPoints);
+        var negative = pointsSave with { tasks = new[] { new { taskNumber = 1, text = "", earnedPoints = "-0.1" } } };
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PutAsJsonAsync(endpoint, negative)).StatusCode);
+        var clear = request with { Subject = "Neues Fach", Tasks = new() { new(1, "", null) }, SaveEarnedPoints = true };
+        Assert.Equal(HttpStatusCode.OK, (await _client.PutAsJsonAsync(endpoint, clear)).StatusCode);
+        Assert.Null(db.GetExamById(exam.Id)!.CoverSheet!.Tasks[0].EarnedPoints);
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PutAsJsonAsync(endpoint, request with { OperatorIds = new() { "unbekannt" } })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PutAsJsonAsync(endpoint, request with { OperatorIds = new() { "erklaeren", "erklaeren" } })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PutAsJsonAsync(endpoint, request with { Tasks = new() { new(9, "Falsche Aufgabe") } })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PutAsJsonAsync(endpoint, request with { Subject = new string('x', 201) })).StatusCode);
+        Assert.Equal("Neues Fach", db.GetExamById(exam.Id)!.CoverSheet!.Subject);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync("/api/klausuren/unbekannt/deckblatt")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.PutAsJsonAsync("/api/klausuren/unbekannt/deckblatt", request)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync("/api/klausuren/unbekannt/deckblatt/pdf")).StatusCode);
+
+        foreach (var format in new[] { "pdf", "docx" })
+        {
+            var response = await _client.GetAsync(endpoint + "/" + format);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Contains("no-store", response.Headers.CacheControl!.ToString());
+            Assert.NotNull(response.Content.Headers.ContentDisposition?.FileNameStar);
+        }
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsync("/api/auth/lock", null)).StatusCode);
+        foreach (var route in new[] { endpoint, endpoint + "/pdf", endpoint + "/docx", "/api/deckblatt/operatoren", "/api/deckblatt/logo" })
+            Assert.Equal(HttpStatusCode.Unauthorized, (await _client.GetAsync(route)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _client.PutAsJsonAsync(endpoint, request)).StatusCode);
+    }
+
+    [Fact]
+    public async Task CoverSheetDocx_DownloadHeaderUsesTemplateFileName()
+    {
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/setup/init", new
+        {
+            pin = "123456", recoveryKey = KeyManager.GenerateRecoveryKey(), inactivityTimeoutMinutes = 15
+        })).StatusCode);
+        var db = _factory.Services.GetRequiredService<DatabaseContext>();
+        var exam = new Exam { Title = "PoWi", ClassName = "11 BG", Date = new DateOnly(2025, 5, 8), Tasks = new() { new(1, "Aufgabe 1", 25m) } };
+        db.SaveExam(exam);
+        var response = await _client.GetAsync($"/api/klausuren/{exam.Id}/deckblatt/docx");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("11 BG PoWi Klausur 08.05.2025.docx", response.Content.Headers.ContentDisposition!.FileNameStar);
+    }
+
+    [Fact]
+    public async Task CoverSheetOperatorRecognition_FollowsSavedTaskTextAndAllowsManualSelection()
+    {
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/setup/init", new
+        {
+            pin = "123456", recoveryKey = KeyManager.GenerateRecoveryKey(), inactivityTimeoutMinutes = 15
+        })).StatusCode);
+        var db = _factory.Services.GetRequiredService<DatabaseContext>();
+        var exam = new Exam { Title = "Test", Tasks = new() { new(1, "Aufgabe 1", 25m) } };
+        db.SaveExam(exam);
+        var endpoint = $"/api/klausuren/{exam.Id}/deckblatt";
+        var request = new SaveCoverSheetRequest("", "", false, true, true, true,
+            new() { new(1, "Geben Sie die Aussagen wieder und diskutieren Sie die These.") }, new() { "erklaeren" });
+        var response = await _client.PutAsJsonAsync(endpoint, request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var model = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var task = model.GetProperty("tasks")[0];
+        Assert.Equal(new[] { "wiedergeben", "diskutieren" }, task.GetProperty("recognizedOperatorIds").EnumerateArray().Select(x => x.GetString()));
+        Assert.Equal(new[] { "Geben", "wieder", "diskutieren" }, task.GetProperty("textParts").EnumerateArray()
+            .Where(x => x.GetProperty("underlined").GetBoolean()).Select(x => x.GetProperty("text").GetString()));
+        Assert.Equal(new[] { "erklaeren" }, db.GetExamById(exam.Id)!.CoverSheet!.Operators.Select(x => x.Id));
+        Assert.Equal(HttpStatusCode.OK, (await _client.PutAsJsonAsync(endpoint, request with
+        {
+            OperatorIds = new() { "wiedergeben", "diskutieren" }, Tasks = new() { new(1, "Analysieren Sie die Aussage.") }
+        })).StatusCode);
+        var updated = await _client.GetFromJsonAsync<JsonElement>(endpoint);
+        Assert.Equal("analysieren", updated.GetProperty("tasks")[0].GetProperty("recognizedOperatorIds")[0].GetString());
+        Assert.Equal(new[] { "wiedergeben", "diskutieren" }, db.GetExamById(exam.Id)!.CoverSheet!.Operators.Select(x => x.Id));
+    }
+
+    [Fact]
+    public async Task CoverSheetNotice_CanBeHiddenEditedShownAndRestored()
+    {
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/setup/init", new
+        {
+            pin = "123456", recoveryKey = KeyManager.GenerateRecoveryKey(), inactivityTimeoutMinutes = 15
+        })).StatusCode);
+        var db = _factory.Services.GetRequiredService<DatabaseContext>();
+        var exam = new Exam
+        {
+            Title = "Politik und Wirtschaft", ClassName = "11 BG-E", Date = new DateOnly(2026, 11, 2),
+            Tasks = new() { new(1, "Aufgabe 1", 25m) }, GradingProfileSnapshot = GradingProfile.BeruflichesGymnasium()
+        };
+        db.SaveExam(exam);
+        var endpoint = $"/api/klausuren/{exam.Id}/deckblatt";
+        var request = new SaveCoverSheetRequest("", "", true, true, false, true,
+            new() { new(1, "Aufgabe") }, new() { "erklaeren" }, "Individueller Hinweis.", true);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PutAsJsonAsync(endpoint, request)).StatusCode);
+        var hidden = await _client.GetFromJsonAsync<JsonElement>(endpoint);
+        Assert.False(hidden.GetProperty("settings").GetProperty("showDeductionRules").GetBoolean());
+        Assert.Equal("Individueller Hinweis.", hidden.GetProperty("deductionNotice").GetString());
+        async Task<string> ExportText()
+        {
+            using var stream = new MemoryStream(await _client.GetByteArrayAsync(endpoint + "/docx"));
+            using var document = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(stream, false);
+            return document.MainDocumentPart!.Document!.Body!.InnerText;
+        }
+        Assert.DoesNotContain("Individueller Hinweis.", await ExportText());
+        Assert.Equal(HttpStatusCode.OK, (await _client.PutAsJsonAsync(endpoint, request with { ShowDeductionRules = true })).StatusCode);
+        var shown = await _client.GetFromJsonAsync<JsonElement>(endpoint);
+        Assert.True(shown.GetProperty("settings").GetProperty("showDeductionRules").GetBoolean());
+        Assert.Contains("Individueller Hinweis.", await ExportText());
+        Assert.Equal(HttpStatusCode.OK, (await _client.PutAsJsonAsync(endpoint, request with { ShowDeductionRules = true, DeductionNotice = null })).StatusCode);
+        var reset = await _client.GetFromJsonAsync<JsonElement>(endpoint);
+        Assert.Equal(reset.GetProperty("defaultDeductionNotice").GetString(), reset.GetProperty("deductionNotice").GetString());
+        Assert.Contains(reset.GetProperty("deductionNotice").GetString()!, await ExportText());
+    }
+
+    [Fact]
     public async Task ExternalHost_ShouldReturn403Forbidden()
     {
         using var externalClient = _factory.CreateClient();

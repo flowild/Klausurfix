@@ -71,7 +71,7 @@ public class BackupService
         // 1. Gather all data
         var payload = new BackupPayload
         {
-            Version = 1,
+            Version = 4, // Includes archive state and editable cover-sheet notices.
             CreatedAt = DateTimeOffset.UtcNow,
             Schulformen = _dbContext.GetSchulformen(includeArchived: true),
             Classes = _dbContext.GetClasses(includeArchived: true)
@@ -83,7 +83,7 @@ public class BackupService
             payload.Students.AddRange(students);
         }
 
-        var exams = _dbContext.GetExams();
+        var exams = _dbContext.GetExams(includeArchived: true);
         foreach (var ex in exams)
         {
             var fullExam = _dbContext.GetExamById(ex.Id);

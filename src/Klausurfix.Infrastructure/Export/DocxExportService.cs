@@ -9,6 +9,8 @@ using Klausurfix.Core.Models;
 
 public class DocxExportService
 {
+    public byte[] GenerateCoverSheet(Exam exam) => CoverSheetExports.Docx(CoverSheetDocument.Create(exam));
+
     public byte[] GenerateExamDocument(Exam exam)
     {
         var summary = ExamCalculator.CalculateExamSummary(exam);

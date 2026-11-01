@@ -178,6 +178,104 @@ public class KeyManagerAndBackupTests : IDisposable
     }
 
     [Fact]
+    public void ArchiveMigrationAndLegacyEncryptionPreserveArchivedAndActiveExams()
+    {
+        _keyManager.Setup("123456", KeyManager.GenerateRecoveryKey());
+        _dbContext.InitializeDatabase();
+        var active = new Exam { Title = "Aktive Testklausur", Tasks = new() { new(1, "Aufgabe 1", 10m) } };
+        var archived = new Exam { Title = "Archivierte Testklausur", Tasks = new() { new(1, "Aufgabe 1", 10m) },
+            StudentEntries = new() { new() { StudentId = "synthetic", StudentName = "Testperson", TaskPoints = new() { [1] = 9m } } } };
+        _dbContext.SaveExam(active);
+        _dbContext.SaveExam(archived);
+        using (var conn = new SqliteConnection($"Data Source={AppPaths.DatabaseFile}"))
+        {
+            conn.Open();
+            using var command = conn.CreateCommand();
+            command.CommandText = "DROP TABLE archived_exams";
+            command.ExecuteNonQuery();
+        }
+        _dbContext.InitializeDatabase();
+        Assert.Equal(2, _dbContext.GetExams().Count);
+        Assert.True(_dbContext.SetExamArchived(archived.Id, true));
+        Assert.False(_dbContext.SetExamArchived("fehlt", true));
+        Assert.Single(_dbContext.GetExams());
+        Assert.Equal(2, _dbContext.GetExams(includeArchived: true).Count);
+        using (var conn = new SqliteConnection($"Data Source={AppPaths.DatabaseFile}"))
+        {
+            conn.Open();
+            using var command = conn.CreateCommand();
+            command.CommandText = "UPDATE exams SET title=$title WHERE id=$id";
+            command.Parameters.AddWithValue("$title", "Alte archivierte Klausur");
+            command.Parameters.AddWithValue("$id", archived.Id);
+            command.ExecuteNonQuery();
+        }
+        _dbContext.MigrateLegacyPlaintext();
+        var migrated = _dbContext.GetExamById(archived.Id)!;
+        Assert.True(migrated.IsArchived);
+        Assert.Equal("Alte archivierte Klausur", migrated.Title);
+        Assert.Equal(9m, migrated.StudentEntries[0].TaskPoints[1]);
+        Assert.Equal(active.Id, Assert.Single(_dbContext.GetExams()).Id);
+        Assert.True(_dbContext.SetExamArchived(archived.Id, false));
+        Assert.Equal(2, _dbContext.GetExams().Count);
+        Assert.True(_dbContext.SetExamArchived(archived.Id, true));
+        Assert.Throws<ArchivedExamReadOnlyException>(() => _dbContext.DeleteExam(archived.Id));
+        Assert.True(_dbContext.SetExamArchived(archived.Id, false));
+        _dbContext.DeleteExam(archived.Id);
+        using var checkConn = new SqliteConnection($"Data Source={AppPaths.DatabaseFile}");
+        checkConn.Open();
+        using var check = checkConn.CreateCommand();
+        check.CommandText = "SELECT COUNT(*) FROM archived_exams";
+        Assert.Equal(0L, (long)check.ExecuteScalar()!);
+        _dbContext.ReplaceFromBackup(new BackupPayload { Version = 2, Exams = new() { active } });
+        Assert.False(Assert.Single(_dbContext.GetExams()).IsArchived);
+        _dbContext.ReplaceFromBackup(new BackupPayload { Version = 3, Exams = new() { active with { IsArchived = true } } });
+        Assert.True(_dbContext.GetExamById(active.Id)!.IsArchived);
+    }
+
+    [Fact]
+    public void CoverSheetMigrationLegacyRestoreTamperDetectionAndDeletionPreserveExamData()
+    {
+        _keyManager.Setup("123456", KeyManager.GenerateRecoveryKey());
+        _dbContext.InitializeDatabase();
+        var exam = new Exam { Title = "Vorhandene Testklausur", Tasks = new() { new(1, "Aufgabe 1", 10m) },
+            GradingProfileSnapshot = GradingProfile.BeruflichesGymnasium() };
+        _dbContext.SaveExam(exam);
+        using var conn = new SqliteConnection($"Data Source={AppPaths.DatabaseFile}");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        // Reproduce a database created before the cover sheet table existed.
+        cmd.CommandText = "DROP TABLE exam_cover_sheets";
+        cmd.ExecuteNonQuery();
+        _dbContext.InitializeDatabase();
+        var migrated = _dbContext.GetExamById(exam.Id)!;
+        Assert.Null(migrated.CoverSheet);
+        Assert.Equal(exam.Title, migrated.Title);
+        Assert.Equal(3m, migrated.GradingProfileSnapshot.DeductionTiers[0].Threshold);
+
+        var settings = Klausurfix.Infrastructure.Export.CoverSheetDocument.Defaults(exam);
+        var invalidBackup = new BackupPayload { Version = 2, Exams = new() { exam with { CoverSheet = settings with { Version = 99 } } } };
+        Assert.Throws<InvalidOperationException>(() => _dbContext.ReplaceFromBackup(invalidBackup));
+        Assert.Equal(exam.Title, _dbContext.GetExamById(exam.Id)!.Title);
+
+        _dbContext.SaveExam(exam with { CoverSheet = settings });
+        _dbContext.ReplaceFromBackup(new BackupPayload { Version = 1, Exams = new() { exam } });
+        Assert.Null(_dbContext.GetExamById(exam.Id)!.CoverSheet);
+        _dbContext.SaveExam(exam with { CoverSheet = settings });
+        cmd.CommandText = "SELECT document_enc FROM exam_cover_sheets WHERE exam_id=$id";
+        cmd.Parameters.AddWithValue("$id", exam.Id);
+        var encrypted = Convert.FromBase64String((string)cmd.ExecuteScalar()!);
+        encrypted[^1] ^= 1;
+        cmd.CommandText = "UPDATE exam_cover_sheets SET document_enc=$document WHERE exam_id=$id";
+        cmd.Parameters.AddWithValue("$document", Convert.ToBase64String(encrypted));
+        cmd.ExecuteNonQuery();
+        Assert.ThrowsAny<System.Security.Cryptography.CryptographicException>(() => _dbContext.GetExamById(exam.Id));
+        _dbContext.SaveExam(exam with { CoverSheet = settings });
+        _dbContext.DeleteExam(exam.Id);
+        cmd.CommandText = "SELECT COUNT(*) FROM exam_cover_sheets";
+        Assert.Equal(0L, (long)cmd.ExecuteScalar()!);
+    }
+
+    [Fact]
     public void SensitiveExamMetadataAndErrorCountsAreEncryptedInDatabase()
     {
         _keyManager.Setup("123456", KeyManager.GenerateRecoveryKey());
@@ -400,6 +498,21 @@ public class KeyManagerAndBackupTests : IDisposable
         _dbContext.SaveExam(exam);
 
         // Create backup
+        exam = exam with { CoverSheet = Klausurfix.Infrastructure.Export.CoverSheetDocument.Defaults(exam) with
+        {
+            Instructions = "SYNTHETISCHER VERTRAULICHER DECKBLATTHINWEIS",
+            DeductionNotice = "Individueller Fehlerhinweis.",
+            Tasks = new() { new(1, "Analysieren Sie den Testtext.", 12.75m), new(2, "Begründen Sie Ihr Urteil.", 0m) }
+        } };
+        _dbContext.SaveExam(exam);
+        using (var connection = new SqliteConnection($"Data Source={AppPaths.DatabaseFile}"))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT document_enc FROM exam_cover_sheets WHERE exam_id=$id";
+            command.Parameters.AddWithValue("$id", exam.Id);
+            Assert.DoesNotContain("DECKBLATTHINWEIS", (string)command.ExecuteScalar()!);
+        }
         var backupBytes = _backupService.CreateBackupBytes(recoveryKey);
         Assert.NotNull(backupBytes);
         Assert.True(backupBytes.Length > 0);
@@ -422,6 +535,11 @@ public class KeyManagerAndBackupTests : IDisposable
         Assert.Single(restoredExam.StudentEntries);
         Assert.Equal(st.FullName, restoredExam.StudentEntries[0].StudentName);
         Assert.Equal(28m, restoredExam.StudentEntries[0].TaskPoints[1]);
+        Assert.Equal(exam.CoverSheet.Instructions, restoredExam.CoverSheet!.Instructions);
+        Assert.Equal(exam.CoverSheet.Tasks, restoredExam.CoverSheet.Tasks);
+        Assert.Equal("Individueller Fehlerhinweis.", restoredExam.CoverSheet.DeductionNotice);
+        Assert.Equal(exam.CoverSheet.Operators, restoredExam.CoverSheet.Operators);
+        Assert.Equal(exam.CoverSheet.OperatorSource, restoredExam.CoverSheet.OperatorSource);
     }
 }
 

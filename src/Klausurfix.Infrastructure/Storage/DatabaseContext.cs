@@ -6,6 +6,12 @@ using Klausurfix.Infrastructure.Security;
 using Microsoft.Data.Sqlite;
 using Klausurfix.Infrastructure.Backup;
 
+public sealed class ArchivedExamReadOnlyException : InvalidOperationException
+{
+    public const string Description = "Diese Klausur ist archiviert und schreibgeschützt. Bitte stellen Sie sie vor dem Bearbeiten wieder her.";
+    public ArchivedExamReadOnlyException() : base(Description) { }
+}
+
 public class DatabaseContext
 {
     private readonly KeyManager _keyManager;
@@ -87,6 +93,17 @@ public class DatabaseContext
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );",
+            @"CREATE TABLE IF NOT EXISTS exam_cover_sheets (
+                exam_id TEXT PRIMARY KEY,
+                document_enc TEXT NOT NULL,
+                FOREIGN KEY(exam_id) REFERENCES exams(id) ON DELETE CASCADE
+            );",
+            @"CREATE TABLE IF NOT EXISTS archived_exams (
+                exam_id TEXT PRIMARY KEY,
+                FOREIGN KEY(exam_id) REFERENCES exams(id) ON DELETE CASCADE
+            );",
+            @"CREATE TABLE IF NOT EXISTS app_migrations (name TEXT PRIMARY KEY);
+              INSERT OR IGNORE INTO app_migrations(name) VALUES ('exam_cover_sheets_v1'), ('archived_exams_v1');",
             @"CREATE TABLE IF NOT EXISTS exam_entries (
                 exam_id TEXT NOT NULL,
                 student_id TEXT NOT NULL,
@@ -113,10 +130,11 @@ public class DatabaseContext
     // point rolls back both the deletion and all inserted rows.
     public void ReplaceFromBackup(BackupPayload payload, bool validateProfiles = true)
     {
-        if (payload.Version != 1 || payload.Schulformen == null || payload.Classes == null ||
+        if (payload.Version is not (1 or 2 or 3 or 4) || payload.Schulformen == null || payload.Classes == null ||
             payload.Students == null || payload.Exams == null)
             throw new InvalidOperationException("Ungültige Sicherungsdaten.");
         if (validateProfiles) foreach (var sf in payload.Schulformen) sf.Profile.Validate();
+        foreach (var exam in payload.Exams) exam.CoverSheet?.Validate(exam);
         var dek = _keyManager.GetActiveDek();
         using var conn = CreateConnection();
         using var transaction = conn.BeginTransaction();
@@ -151,6 +169,11 @@ public class DatabaseContext
                     ("$sfName", Protect(exam.SchulformName, dek)), ("$title", Protect(exam.Title, dek)), ("$date", Protect(exam.Date.ToString("O"), dek)),
                     ("$tasks", Protect(JsonSerializer.Serialize(exam.Tasks), dek)), ("$profile", Protect(JsonSerializer.Serialize(exam.GradingProfileSnapshot), dek)),
                     ("$created", Protect(exam.CreatedAt.ToString("O"), dek)), ("$updated", Protect(exam.UpdatedAt.ToString("O"), dek)));
+                if (exam.CoverSheet != null)
+                    Execute("INSERT INTO exam_cover_sheets (exam_id,document_enc) VALUES ($id,$document)",
+                        ("$id", exam.Id), ("$document", CryptoService.EncryptString(JsonSerializer.Serialize(exam.CoverSheet), dek)));
+                if (exam.IsArchived)
+                    Execute("INSERT INTO archived_exams (exam_id) VALUES ($id)", ("$id", exam.Id));
                 foreach (var entry in exam.StudentEntries)
                     Execute("INSERT INTO exam_entries (exam_id,student_id,student_name_enc,status,task_points_enc,word_count,error_count,note_enc) VALUES ($exam,$student,$name,$status,$points,$words,$errors,$note)",
                         ("$exam", exam.Id), ("$student", entry.StudentId), ("$name", CryptoService.EncryptString(entry.StudentName, dek)),
@@ -189,7 +212,7 @@ public class DatabaseContext
             var payload = new BackupPayload
             {
                 Schulformen = GetSchulformen(true), Classes = GetClasses(true),
-                Exams = GetExams().Select(e => GetExamById(e.Id)!).ToList()
+                Exams = GetExams(includeArchived: true).Select(e => GetExamById(e.Id)!).ToList()
             };
             foreach (var cls in payload.Classes) payload.Students.AddRange(GetStudentsByClass(cls.Id, true));
             ReplaceFromBackup(payload, validateProfiles: false);
@@ -555,17 +578,21 @@ ON CONFLICT(id) DO UPDATE SET
 
     #region Exams
 
-    public List<Exam> GetExams()
+    public List<Exam> GetExams(bool includeArchived = false)
     {
         var dek = _keyManager.GetActiveDek();
         var list = new List<Exam>();
         using var conn = CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT id, class_id, class_name, schulform_id, schulform_name, title, date, tasks_json, profile_snapshot_json, created_at, updated_at FROM exams ORDER BY date DESC, title ASC;";
+        cmd.CommandText = @"SELECT id, class_id, class_name, schulform_id, schulform_name, title, date, tasks_json,
+            profile_snapshot_json, created_at, updated_at, EXISTS(SELECT 1 FROM archived_exams a WHERE a.exam_id=exams.id)
+            FROM exams ORDER BY date DESC, title ASC;";
 
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
         {
+            var isArchived = reader.GetInt32(11) != 0;
+            if (isArchived && !includeArchived) continue;
             var id = reader.GetString(0);
             var classId = reader.GetString(1);
             var className = Unprotect(reader.GetString(2), dek);
@@ -592,6 +619,7 @@ ON CONFLICT(id) DO UPDATE SET
                 Date = date,
                 Tasks = tasks,
                 GradingProfileSnapshot = profile,
+                IsArchived = isArchived,
                 CreatedAt = createdAt,
                 UpdatedAt = updatedAt
             });
@@ -605,7 +633,9 @@ ON CONFLICT(id) DO UPDATE SET
         var dek = _keyManager.GetActiveDek();
         using var conn = CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT id, class_id, class_name, schulform_id, schulform_name, title, date, tasks_json, profile_snapshot_json, created_at, updated_at FROM exams WHERE id = $id;";
+        cmd.CommandText = @"SELECT id, class_id, class_name, schulform_id, schulform_name, title, date, tasks_json,
+            profile_snapshot_json, created_at, updated_at, EXISTS(SELECT 1 FROM archived_exams a WHERE a.exam_id=exams.id)
+            FROM exams WHERE id = $id;";
         cmd.Parameters.AddWithValue("$id", id);
 
         using var reader = cmd.ExecuteReader();
@@ -621,11 +651,21 @@ ON CONFLICT(id) DO UPDATE SET
         var profJson = Unprotect(reader.GetString(8), dek);
         var createdAt = DateTimeOffset.Parse(Unprotect(reader.GetString(9), dek));
         var updatedAt = DateTimeOffset.Parse(Unprotect(reader.GetString(10), dek));
+        var isArchived = reader.GetInt32(11) != 0;
 
         var tasks = JsonSerializer.Deserialize<List<TaskDefinition>>(tasksJson) ?? new();
         var profile = JsonSerializer.Deserialize<GradingProfile>(profJson) ?? GradingProfile.CreateDefaultSchulnoten();
 
         reader.Close();
+
+        CoverSheet? coverSheet = null;
+        using (var coverCmd = conn.CreateCommand())
+        {
+            coverCmd.CommandText = "SELECT document_enc FROM exam_cover_sheets WHERE exam_id=$id";
+            coverCmd.Parameters.AddWithValue("$id", id);
+            if (coverCmd.ExecuteScalar() is string encrypted)
+                coverSheet = JsonSerializer.Deserialize<CoverSheet>(CryptoService.DecryptString(encrypted, dek));
+        }
 
         // Load student entries
         var entries = new List<ExamStudentEntry>();
@@ -682,6 +722,8 @@ ON CONFLICT(id) DO UPDATE SET
             Date = date,
             Tasks = tasks,
             GradingProfileSnapshot = profile,
+            CoverSheet = coverSheet,
+            IsArchived = isArchived,
             StudentEntries = entries,
             CreatedAt = createdAt,
             UpdatedAt = updatedAt
@@ -690,12 +732,16 @@ ON CONFLICT(id) DO UPDATE SET
 
     public void SaveExam(Exam exam)
     {
+        exam.CoverSheet?.Validate(exam);
         var dek = _keyManager.GetActiveDek();
         var tasksJson = Protect(JsonSerializer.Serialize(exam.Tasks), dek);
         var profJson = Protect(JsonSerializer.Serialize(exam.GradingProfileSnapshot), dek);
 
         using var conn = CreateConnection();
-        using var trans = conn.BeginTransaction();
+        // The archive check and write share an immediate transaction, so an
+        // archive transition cannot slip between the check and the update.
+        using var trans = conn.BeginTransaction(deferred: false);
+        EnsureExamIsEditable(conn, trans, exam.Id);
 
         using var cmd = conn.CreateCommand();
         cmd.Transaction = trans;
@@ -724,6 +770,21 @@ ON CONFLICT(id) DO UPDATE SET
         cmd.Parameters.AddWithValue("$updatedAt", Protect(DateTimeOffset.UtcNow.ToString("O"), dek));
 
         cmd.ExecuteNonQuery();
+
+        using (var coverCmd = conn.CreateCommand())
+        {
+            coverCmd.Transaction = trans;
+            coverCmd.Parameters.AddWithValue("$id", exam.Id);
+            if (exam.CoverSheet == null)
+                coverCmd.CommandText = "DELETE FROM exam_cover_sheets WHERE exam_id=$id";
+            else
+            {
+                coverCmd.CommandText = @"INSERT INTO exam_cover_sheets (exam_id,document_enc) VALUES ($id,$document)
+                    ON CONFLICT(exam_id) DO UPDATE SET document_enc=excluded.document_enc";
+                coverCmd.Parameters.AddWithValue("$document", CryptoService.EncryptString(JsonSerializer.Serialize(exam.CoverSheet), dek));
+            }
+            coverCmd.ExecuteNonQuery();
+        }
 
         // Save entries
         foreach (var entry in exam.StudentEntries)
@@ -760,13 +821,47 @@ ON CONFLICT(exam_id, student_id) DO UPDATE SET
         trans.Commit();
     }
 
+    // Archive transitions modify only the archive marker, never the exam snapshot or entries.
+    public bool SetExamArchived(string id, bool archived)
+    {
+        using var conn = CreateConnection();
+        using var transaction = conn.BeginTransaction(deferred: false);
+        using var check = conn.CreateCommand();
+        check.Transaction = transaction;
+        check.CommandText = "SELECT EXISTS(SELECT 1 FROM exams WHERE id=$id)";
+        check.Parameters.AddWithValue("$id", id);
+        if (Convert.ToInt32(check.ExecuteScalar()) == 0) return false;
+        using var command = conn.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = archived
+            ? "INSERT OR IGNORE INTO archived_exams (exam_id) VALUES ($id)"
+            : "DELETE FROM archived_exams WHERE exam_id=$id";
+        command.Parameters.AddWithValue("$id", id);
+        command.ExecuteNonQuery();
+        transaction.Commit();
+        return true;
+    }
+
     public void DeleteExam(string id)
     {
         using var conn = CreateConnection();
+        using var transaction = conn.BeginTransaction(deferred: false);
+        EnsureExamIsEditable(conn, transaction, id);
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = transaction;
         cmd.CommandText = "DELETE FROM exams WHERE id = $id;";
         cmd.Parameters.AddWithValue("$id", id);
         cmd.ExecuteNonQuery();
+        transaction.Commit();
+    }
+
+    private static void EnsureExamIsEditable(SqliteConnection conn, SqliteTransaction transaction, string id)
+    {
+        using var command = conn.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT EXISTS(SELECT 1 FROM archived_exams WHERE exam_id=$id)";
+        command.Parameters.AddWithValue("$id", id);
+        if (Convert.ToInt32(command.ExecuteScalar()) != 0) throw new ArchivedExamReadOnlyException();
     }
 
     #endregion

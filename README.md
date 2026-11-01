@@ -18,8 +18,10 @@ Entwickelt für den Betrieb auf einem **Microsoft Surface Pro** unter Windows.
   - Frei definierbare Fehlerquotient-Abzugstabelle: Stufen ab Grenze einschließlich bis zur nächsten Grenze ausschließlich.
   - Prozentualer Notenschlüssel mit exakter Grenzprüfung ohne Vorab-Rundung.
 - **Klausur-Snapshotting:** Jede Klausur friert ihr Regelwerk und ihre Schülerliste bei Erstellung ein. Spätere Stammdatenänderungen verändern historische Klausuren niemals stillschweigend.
+- **Klausurarchiv:** Klausuren können aus der Übersicht archiviert und im separaten Archiv geöffnet oder wiederhergestellt werden. Im Archiv sind Klausuren samt Deckblatt schreibgeschützt; nach dem Wiederherstellen lassen sie sich wieder bearbeiten. Archivierte Klausuren bleiben mit ihren Ergebnissen und Deckblättern Bestandteil der verschlüsselten Sicherungen.
 - **Saubere Status-Trennung:** Regulär bewertete Schüler, tatsächlich 0 Punkte, unvollständige und krankheitsbedingt fehlende Schüler werden exakt unterschieden; Abwesende werden im Klassenschnitt nicht als 0 gewertet.
 - **PDF- & DOCX-Export:** Übersichtsberichte im Querformat mit Aufgabenmatrix, waagerechtem Notenspiegel und Bewertungsregeln.
+- **Klausurendeckblätter:** Bearbeitbare Aufgabenstellungen, Klausurdaten, Höchstpunkte, Notenschlüssel und Hinweise im A4-Hochformat. Pro Klausur auswählbare Operatoren stehen mit Definition auf der ersten Seite; PDF und DOCX sind offline verfügbar.
 - **Sicherheit & Windows Hello:**
   - 6-stellige App-PIN mit PBKDF2-Schlüsselableitung (600.000 Iterationen) und progressiver Verzögerung bei Fehlversuchen.
   - Die PIN-Schlüsselhülle wird zusätzlich an den Windows-Benutzer gebunden. Die Geräteanmeldung über WebAuthn erfordert Benutzerverifikation und einen PRF-fähigen Plattformauthentifikator; die App-PIN bleibt verfügbar. Die Funktion muss auf dem Surface mit Windows Hello und dem verwendeten Browser geprüft werden.
@@ -50,9 +52,25 @@ Klausurfix bindet ausschließlich an den lokalen Loopback-Adapter und wird im Br
 1. Beim ersten Start öffnet sich der Einrichtungs-Assistent.
 2. Legen Sie Ihre **App-PIN** fest (mindestens 6 Ziffern).
 3. Notieren Sie sich den generierten **Wiederherstellungsschlüssel**.
-4. Nach Bestätigung startet Klausurfix direkt in die Übersicht.
+4. Nach Bestätigung startet Klausurfix direkt in die Klausurenübersicht. Ein Klick auf eine Klausur öffnet ihre Eingabetabelle.
 
 ---
+
+## Klausurendeckblatt erstellen
+
+1. Nach dem Anlegen einer Klausur **Deckblatt erstellen** wählen oder das Angebot überspringen. Das Deckblatt kann auch später in der Eingabetabelle oder Auswertung über **Deckblatt erstellen** geöffnet werden.
+2. Der Klausurtitel erscheint automatisch mit „Klausur“ in der Kopfzeile. Bei Bedarf einen Zusatz und weitere Hinweise ergänzen und für jede bestehende Aufgabe die Aufgabenstellung eingeben. Aufgabenanzahl und Höchstpunkte werden aus der Klausur übernommen.
+3. Bis zu sechs Operatoren für die erste Seite manuell auswählen oder mit **Operatoren aus Aufgaben übernehmen** erkennen und auswählen lassen. Dieser Knopf ersetzt die aktuelle Auswahl; sie kann danach angepasst werden. Bei mehr als sechs erkannten Operatoren werden die ersten sechs übernommen. Die Suche durchsucht Namen und Definitionen. Zunächst sind „wiedergeben“, „erklären“ und „diskutieren“ aus der Beispielvorlage ausgewählt; sie können abgewählt werden. Erkannte Operatoren werden in den Aufgaben automatisch unterstrichen. Die Erkennung kann je nach Formulierung unvollständig oder mehrdeutig sein; bitte Unterstreichung und Auswahl prüfen.
+4. Das Logo der Saalburgschule aus der Vorlage, den Notenschlüssel, den Abzugshinweis und das Feld zur Wortanzahl nach Bedarf ein- oder ausblenden. Der Abzugshinweis kann bearbeitet oder auf den Standardtext zurückgesetzt werden; die automatische Berechnung berücksichtigt Rechtschreibfehler.
+5. Den Status **Gespeichert** abwarten und **PDF herunterladen** oder **DOCX herunterladen** wählen. Das DOCX enthält nach dem Deckblatt eine leere Seite mit Kopfbereich zum Einfügen des Quelltexts. Eingaben werden automatisch lokal gespeichert; vor dem Export und Schließen werden ausstehende Änderungen gespeichert. Bei einem Speicherfehler bleibt der Editor offen und versucht das Speichern automatisch erneut.
+
+Die Gestaltung orientiert sich an der Vorlage: mittiges Schullogo, Namensfeld rechts, graue Tabellenkopfzeile, zentrierte Hinweise und links angeordnete Aufgaben mit eingerücktem Text und Punktfeld rechts. Der Abzugshinweis wird sofort in der Vorschau aktualisiert; der Speicherstatus zeigt noch nicht gespeicherte Änderungen an. Das genaue Drucklayout und Seitenumbrüche im heruntergeladenen Dokument prüfen. Bei langen Aufgaben kann das Dokument mehrere Seiten umfassen. Operatoren stehen nur auf der ersten Seite, Seitenzahlen auf jeder Seite. Die Materialseite der Beispielklausur wird nicht angehängt. Das Deckblatt enthält ein leeres Namensfeld.
+
+Als Layoutvorlage dient die bereitgestellte Datei `11 BG PoWi Klausur 08.05.2025.docx`. Deren Tabelle überschneidet sich bei 20 Punkten; außerdem unterscheidet sich das Datum im Dokument vom Dateinamen. Daher verwendet die Funktion das Datum und den gespeicherten Notenschlüssel der jeweiligen Klausur. Prozentgrenzen werden ausdrücklich als einschließlich geltende Untergrenzen angezeigt. Die Funktion übernimmt keine neue amtliche Bewertungstabelle und verändert keine bestehenden Klausurprofile.
+
+Die 31 Operatoreneinträge einschließlich zusammengefasster Synonyme stammen aus `la27-operatoren-deutsch-musik-sport-fbii.pdf`: Hessisches Ministerium für Kultus, Bildung und Chancen, Landesabitur 2027, Stand **1. August 2025**. Insbesondere „erklären“ verwendet die Definition aus diesem PDF; die ältere Definition im Beispieldeckblatt wird nicht übernommen. Die dort angegebenen Anforderungsbereiche sind kontextabhängig. Die ausgewählten Definitionen und ihr Quellenstand werden je Klausur festgehalten.
+
+Deckblattdaten werden authentifiziert verschlüsselt gespeichert und in vollständige Sicherungen aufgenommen. Neue Sicherungen verwenden Datenversion 4 und enthalten den Archivstatus sowie Deckblatthinweise und eingetragene Punkte; Sicherungen der Datenversionen 1 bis 3 können weiterhin eingelesen werden. Für die Wiederherstellung neuer Sicherungen ist diese oder eine neuere Klausurfix-Version erforderlich. Originaldateien vom Desktop und Materialabbildungen werden nicht in Arbeitsdaten oder Repository kopiert; lediglich das Vorlagenlogo wird als lokale Programmressource mitgeliefert.
 
 ## Projektstruktur
 

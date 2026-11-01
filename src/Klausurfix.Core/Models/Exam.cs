@@ -13,6 +13,9 @@ public record Exam
     public List<TaskDefinition> Tasks { get; init; } = new();
     public decimal TotalMaxPoints => Tasks.Sum(t => t.MaxPoints);
 
+    public CoverSheet? CoverSheet { get; init; }
+    public bool IsArchived { get; init; }
+
     // Frozen snapshot of grading rules at exam creation time
     public GradingProfile GradingProfileSnapshot { get; init; } = GradingProfile.CreateDefaultSchulnoten();
 

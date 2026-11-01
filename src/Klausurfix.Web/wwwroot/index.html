@@ -26,15 +26,15 @@
       <nav class="nav-links">
         <button class="nav-btn active" data-view="dashboard">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-          Übersicht
-        </button>
-        <button class="nav-btn" data-view="schulformen">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
-          Schulformen
+          Klausuren
         </button>
         <button class="nav-btn" data-view="klassen">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
           Klassen
+        </button>
+        <button class="nav-btn" data-view="schulformen">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
+          Schulformen
         </button>
         <button class="nav-btn" data-view="settings">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
@@ -177,27 +177,25 @@
       </div>
     </section>
 
-    <!-- View 3: Dashboard (Übersicht) -->
+    <!-- View 3: Klausuren -->
     <section class="view" id="dashboardView">
       <div class="card-header">
         <div>
-          <h1 class="card-title" style="font-size: 1.6rem;">Übersicht</h1>
-          <p class="card-subtitle">Verwalten Sie Ihre Klassen, Noten und Klausuren an einem Ort.</p>
+          <h1 class="card-title" style="font-size: 1.6rem;">Klausuren</h1>
+          <p class="card-subtitle">Wählen Sie eine Klausur aus, um ihre Eingabetabelle zu öffnen.</p>
         </div>
-        <div style="display: flex; gap: 0.75rem;">
+        <div class="exam-list-actions">
+          <button class="btn btn-secondary" id="openExamArchiveBtn">Archiv</button>
           <button class="btn btn-primary" id="dashNewExamBtn">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
             Neue Klausur
-          </button>
-          <button class="btn btn-secondary" id="dashNewClassBtn">
-            Neue Klasse
           </button>
         </div>
       </div>
 
       <!-- Recent Exams Card -->
       <div class="card">
-        <h2 class="card-title">Letzte Klausuren</h2>
+        <h2 class="card-title">Alle Klausuren</h2>
         <div class="table-responsive" style="margin-top: 1rem;">
           <table class="data-table">
             <thead>
@@ -208,12 +206,31 @@
                 <th>Datum</th>
                 <th>Aufgaben</th>
                 <th>Höchstpunkte</th>
-                <th style="text-align: right;">Aktionen</th>
+                <th>Archiv</th>
               </tr>
             </thead>
             <tbody id="dashboardExamsList">
               <!-- Dynamically populated -->
             </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" id="archivView">
+      <div class="card-header">
+        <div>
+          <h1 class="card-title" style="font-size: 1.6rem;">Klausurarchiv</h1>
+          <p class="card-subtitle">Archivierte Klausuren öffnen oder wieder in die Klausurenübersicht aufnehmen.</p>
+        </div>
+        <button class="btn btn-secondary" id="archiveBackBtn">Zu den Klausuren</button>
+      </div>
+      <div class="card">
+        <h2 class="card-title">Archivierte Klausuren</h2>
+        <div class="table-responsive" style="margin-top: 1rem;">
+          <table class="data-table">
+            <thead><tr><th>Titel</th><th>Klasse</th><th>Schulform</th><th>Datum</th><th>Aufgaben</th><th>Höchstpunkte</th><th>Archiv</th></tr></thead>
+            <tbody id="archiveExamsList"></tbody>
           </table>
         </div>
       </div>
@@ -282,7 +299,7 @@
 
           <div class="form-group">
             <label class="form-label" for="newExamTitle">Klausurtitel</label>
-            <input type="text" id="newExamTitle" class="form-control" placeholder="z. B. 1. Schulaufgabe: Erörterung" required>
+            <input type="text" id="newExamTitle" class="form-control" placeholder="z. B. Politik und Wirtschaft" required>
           </div>
 
           <div style="margin-top: 1.5rem; margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
@@ -300,7 +317,7 @@
           </div>
 
           <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1.5rem; height: 48px;">
-            Klausur anlegen & zur Eingabetabelle
+            Klausur anlegen
           </button>
         </form>
       </div>
@@ -312,6 +329,7 @@
         <div>
           <div style="display: flex; align-items: center; gap: 0.75rem;">
             <h1 class="card-title" id="matrixExamTitle">Klausurtitel</h1>
+            <span class="archive-badge" id="matrixArchivedBadge" hidden>Archiviert · schreibgeschützt</span>
             <span class="save-badge saved" id="saveBadge">
               <span style="width: 8px; height: 8px; border-radius: 50%; background-color: currentColor;"></span>
               Gespeichert
@@ -321,6 +339,7 @@
         </div>
 
         <div style="display: flex; gap: 0.75rem;">
+          <button class="btn btn-secondary" id="matrixCoverSheetBtn">Deckblatt erstellen</button>
           <button class="btn btn-secondary" id="matrixToAuswertungBtn">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10"></path><path d="M12 20V4"></path><path d="M6 20v-6"></path></svg>
             Zur Auswertung
@@ -331,7 +350,8 @@
 
       <!-- Quick hint for touch/keyboard -->
       <div style="font-size: 0.85rem; color: var(--gray-500); margin-bottom: 0.75rem; display: flex; justify-content: space-between;">
-        <span>Tipp: Nutzen Sie Tab / Enter zur schnellen Navigation zwischen den Feldern. Deutsches Dezimalkomma wird unterstützt.</span>
+        <span id="matrixKeyboardHint">Tipp: Nutzen Sie Tab / Enter zur schnellen Navigation zwischen den Feldern. Deutsches Dezimalkomma wird unterstützt.</span>
+        <span id="matrixArchivedHint" hidden>Zum Bearbeiten die Klausur im Archiv wiederherstellen.</span>
         <span id="matrixStudentCount">0 Schüler</span>
       </div>
 
@@ -345,10 +365,12 @@
     <section class="view" id="auswertungView">
       <div class="card-header">
         <div>
-          <h1 class="card-title" id="auswertungExamTitle">Auswertung & Notenspiegel</h1>
+          <div class="exam-title-line"><h1 class="card-title" id="auswertungExamTitle">Auswertung & Notenspiegel</h1>
+            <span class="archive-badge" id="auswertungArchivedBadge" hidden>Archiviert · schreibgeschützt</span></div>
           <p class="card-subtitle" id="auswertungExamMeta">Klasse | Schulform | Datum</p>
         </div>
         <div style="display: flex; gap: 0.75rem;">
+          <button class="btn btn-secondary" id="auswertungCoverSheetBtn">Deckblatt erstellen</button>
           <button class="btn btn-primary" id="exportPdfBtn">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
             PDF herunterladen
@@ -558,6 +580,15 @@
 
   <!-- Modals Container -->
   <div id="modalContainer"></div>
+
+  <dialog id="coverSheetOffer" class="modal-content cover-offer" aria-labelledby="coverSheetOfferTitle" aria-describedby="coverSheetOfferDescription">
+    <h2 class="modal-title" id="coverSheetOfferTitle">Deckblatt erstellen?</h2>
+    <p class="card-subtitle" id="coverSheetOfferDescription">Die Klausur wurde angelegt. Sie können jetzt ein Deckblatt erstellen oder es später über die Eingabetabelle ergänzen.</p>
+    <div class="cover-offer-actions">
+      <button type="button" class="btn btn-secondary" id="skipCoverSheetBtn">Überspringen</button>
+      <button type="button" class="btn btn-primary" id="createCoverSheetNowBtn">Deckblatt erstellen</button>
+    </div>
+  </dialog>
 
   <!-- Toast Container -->
   <div class="toast-container" id="toastContainer"></div>
