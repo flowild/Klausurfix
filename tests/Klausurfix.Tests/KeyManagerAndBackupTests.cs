@@ -200,6 +200,7 @@ public class KeyManagerAndBackupTests : IDisposable
         Assert.False(_dbContext.SetExamArchived("fehlt", true));
         Assert.Single(_dbContext.GetExams());
         Assert.Equal(2, _dbContext.GetExams(includeArchived: true).Count);
+        LegacyDatabaseFixture.Downgrade(_keyManager.GetActiveDek());
         using (var conn = new SqliteConnection($"Data Source={AppPaths.DatabaseFile}"))
         {
             conn.Open();
@@ -263,10 +264,10 @@ public class KeyManagerAndBackupTests : IDisposable
         _dbContext.SaveExam(exam with { CoverSheet = settings });
         cmd.CommandText = "SELECT document_enc FROM exam_cover_sheets WHERE exam_id=$id";
         cmd.Parameters.AddWithValue("$id", exam.Id);
-        var encrypted = Convert.FromBase64String((string)cmd.ExecuteScalar()!);
+        var encrypted = Convert.FromBase64String(((string)cmd.ExecuteScalar()!)[4..]);
         encrypted[^1] ^= 1;
         cmd.CommandText = "UPDATE exam_cover_sheets SET document_enc=$document WHERE exam_id=$id";
-        cmd.Parameters.AddWithValue("$document", Convert.ToBase64String(encrypted));
+        cmd.Parameters.AddWithValue("$document", "kf2:" + Convert.ToBase64String(encrypted));
         cmd.ExecuteNonQuery();
         Assert.ThrowsAny<System.Security.Cryptography.CryptographicException>(() => _dbContext.GetExamById(exam.Id));
         _dbContext.SaveExam(exam with { CoverSheet = settings });
@@ -321,6 +322,7 @@ public class KeyManagerAndBackupTests : IDisposable
             StudentEntries = new() { new ExamStudentEntry { StudentId = "s", StudentName = "Test Name", WordCount = 600,
                 ErrorCount = 12, TaskPoints = new() { [1] = 9 } } } };
         _dbContext.SaveExam(exam);
+        LegacyDatabaseFixture.Downgrade(_keyManager.GetActiveDek());
         using (var conn = new SqliteConnection($"Data Source={AppPaths.DatabaseFile}"))
         {
             conn.Open(); using var cmd = conn.CreateCommand();

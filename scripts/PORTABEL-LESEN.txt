@@ -1,0 +1,33 @@
+Klausurfix 0.1.1 – portable Windows-Version
+
+1. Das ZIP-Archiv vollständig in einen lokalen Ordner entpacken.
+2. Klausurfix.vbs doppelklicken. Klausurfix öffnet sich im Browser.
+3. Bei der Ersteinrichtung eine App-PIN festlegen und den Wiederherstellungsschlüssel sicher aufbewahren.
+4. Mit „Beenden“ in der Anwendung den lokalen Hintergrunddienst beenden.
+
+Das ARM64-Paket ist für Windows auf ARM vorgesehen, beispielsweise das Surface Pro 11.
+Das x64-Paket ist für 64-Bit-Windows auf Intel- und AMD-Prozessoren vorgesehen.
+Für die Nutzung ist kein .NET SDK und keine Internetverbindung nötig. Das gesamte
+entpackte Programmverzeichnis muss zusammenbleiben. Optional erstellt
+Verknuepfung-erstellen.vbs eine Desktop-Verknüpfung.
+
+Die Anwendung und ihre Daten sind getrennt: Daten und verwaltete Sicherungen liegen
+standardmäßig unter %LOCALAPPDATA%\Klausurfix des jeweiligen Windows-Benutzers,
+nicht im Programmordner. Das ZIP enthält keine eigenen Klausurdaten oder Sicherungen.
+Zum Übertragen eigener Daten eine verschlüsselte Sicherung und den getrennt
+aufbewahrten Wiederherstellungsschlüssel verwenden. Exporte und Sicherungskopien
+nicht in Cloud-Ordnern speichern, wenn personenbezogene Daten geschützt werden sollen.
+
+Version 0.1.1 bindet verschlüsselte Felder an ihren Datensatz und ihre Spalte.
+Beim ersten Entsperren werden bestehende Daten automatisch umgestellt. Vor dem
+Wechsel in der bisherigen Version eine verschlüsselte Sicherung erstellen und
+den Wiederherstellungsschlüssel bereithalten. Die umgestellte Arbeitsdatenbank
+kann mit Version 0.1 nicht mehr gelesen werden. Zum Aktualisieren die bisherige
+App mit „Beenden“ schließen, das neue ZIP in einen eigenen Ordner entpacken
+und dort Klausurfix.vbs starten. Die vorhandenen Arbeitsdaten bleiben im
+Windows-Benutzerprofil. Eine bestehende Desktop-Verknüpfung verweist weiterhin
+auf den alten Programmordner und muss bei Bedarf angepasst werden.
+
+Windows Hello, Touch und Betrieb auf dem Surface Pro 11 müssen
+auf dem Zielgerät noch geprüft werden. Die PIN-Anmeldung bleibt alternativ nutzbar.
+Hinweise zu Abhängigkeiten und Lizenzen stehen im Ordner Lizenzen.

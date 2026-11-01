@@ -9,6 +9,7 @@
 *.sln.docstates
 .vs/
 .idea/
+release/
 
 ## OS generated files
 Thumbs.db

@@ -23,16 +23,26 @@ Entwickelt für den Betrieb auf einem **Microsoft Surface Pro** unter Windows.
 - **PDF- & DOCX-Export:** Übersichtsberichte im Querformat mit Aufgabenmatrix, waagerechtem Notenspiegel und Bewertungsregeln.
 - **Klausurendeckblätter:** Bearbeitbare Aufgabenstellungen, Klausurdaten, Höchstpunkte, Notenschlüssel und Hinweise im A4-Hochformat. Pro Klausur auswählbare Operatoren stehen mit Definition auf der ersten Seite; PDF und DOCX sind offline verfügbar.
 - **Sicherheit & Windows Hello:**
-  - 6-stellige App-PIN mit PBKDF2-Schlüsselableitung (600.000 Iterationen) und progressiver Verzögerung bei Fehlversuchen.
+  - App-PIN mit 6 bis 64 Ziffern, PBKDF2-Schlüsselableitung (600.000 Iterationen) und progressiver Verzögerung bei Fehlversuchen. Kurze PINs bleiben für eine einfache Bedienung erlaubt.
   - Die PIN-Schlüsselhülle wird zusätzlich an den Windows-Benutzer gebunden. Die Geräteanmeldung über WebAuthn erfordert Benutzerverifikation und einen PRF-fähigen Plattformauthentifikator; die App-PIN bleibt verfügbar. Die Funktion muss auf dem Surface mit Windows Hello und dem verwendeten Browser geprüft werden.
   - Unabhängiger Wiederherstellungsschlüssel (`KF-XXXX-XXXX-...`) für portable Backups und Neuinstallationen.
   - Automatische Sperre bei Inaktivität und manueller Sofort-Sperrknopf.
 
 ---
 
+Verschlüsselte Datenbankfelder sind über zusätzliche authentifizierte Daten (AAD) an Formatversion, Tabelle, Spalte und vollständigen Primärschlüssel gebunden. Bei Klausureinträgen gehören sowohl Klausur-ID als auch Schüler-ID dazu. Kopierte Chiffretexte aus anderen Feldern oder Datensätzen werden abgewiesen. Grundlage ist die [AAD-Unterstützung von AES-GCM in .NET](https://learn.microsoft.com/en-us/dotnet/api/system.security.cryptography.aesgcm.encrypt). Beim ersten Entsperren mit dieser Version werden ältere Felder innerhalb einer SQLite-Transaktion in das Format `kf2:` migriert; fachliche Snapshots, Archivstatus und Deckblätter bleiben erhalten. Nach der Umstellung akzeptieren reguläre Lesezugriffe keine alten Feldformate oder Klartexte. Anschließend werden freie Datenbankseiten und das WAL bereinigt; eine unterbrochene Bereinigung wird beim nächsten Entsperren fortgesetzt. Die umgestellte Arbeitsdatenbank kann mit älteren App-Versionen nicht mehr gelesen werden. Das Sicherungsformat bleibt kompatibel; beim Wiederherstellen werden Felder mit der neuen Bindung gespeichert.
+
+Der Schutz hat Grenzen: SQLite-Struktur, IDs, Beziehungen, Datensatzzahlen, Sortierreihenfolge und Archivkennzeichen bleiben sichtbar und sind nicht durch die Feldbindung geschützt. Die Bindung verhindert keine Löschungen und kein Zurückspielen älterer Daten am ursprünglichen Speicherplatz. Bereits vor der Migration vertauschte alte Felder lassen sich nachträglich nicht sicher erkennen. DPAPI schützt den PIN-Pfad durch Bindung an den Windows-Benutzer; Programme im passenden Benutzerkonto können diese Schicht öffnen und PINs offline prüfen. Die App-Verzögerungen gelten nur für Anmeldeversuche über die App. Kurze oder leicht erratbare PINs bieten deshalb begrenzten Schutz gegen diesen Angriff. Klausurfix ersetzt keinen Windows-Geräteschutz und schützt nicht zuverlässig vor Schadsoftware im bereits entsperrten Benutzerkonto.
+
 ## Schnellstart
 
 ### 1. Starten
+
+Für die portable Version 0.1.1 das passende ZIP vollständig entpacken und `Klausurfix.vbs` starten: `win-arm64` für Windows auf ARM (z. B. Surface Pro 11), `win-x64` für Windows auf Intel-/AMD-Prozessoren. Die Laufzeit ist enthalten; es wird kein .NET SDK benötigt. Arbeitsdaten und verwaltete Sicherungen liegen weiterhin im lokalen Windows-Benutzerprofil unter `%LOCALAPPDATA%\Klausurfix` und werden nicht mit dem Programmordner verschickt. Die ARM64-Version und Windows Hello müssen auf dem Surface noch geprüft werden.
+
+Zum Aktualisieren von 0.1 zunächst dort eine verschlüsselte Sicherung erstellen und die App mit **Beenden** schließen. Version 0.1.1 in einen eigenen Programmordner entpacken und daraus starten; vorhandene Arbeitsdaten werden beim Entsperren migriert. Die umgestellte Arbeitsdatenbank ist mit 0.1 nicht mehr lesbar. Eine bisherige Desktop-Verknüpfung verweist weiterhin auf den alten Programmordner und muss angepasst werden.
+
+Die Pakete lassen sich mit `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1` aus dem Quellcode erstellen; sie erscheinen unter `release/`. Die Lizenzbedingungen der mitgelieferten Komponenten liegen im Paket unter `Lizenzen`. Für QuestPDF ist im Code die Community-Lizenz eingestellt; deren Voraussetzungen sind für den jeweiligen Einsatz zu prüfen.
 
 Doppelklick auf `Klausurfix.vbs` startet den lokalen Hintergrunddienst ohne sichtbares Konsolenfenster und öffnet die Anwendung in Microsoft Edge. Wenn Edge nicht gefunden wird, öffnet sich der Standardbrowser. Ein weiterer Start verwendet die bereits laufende Instanz.
 

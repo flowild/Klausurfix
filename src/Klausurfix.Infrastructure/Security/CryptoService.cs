@@ -93,23 +93,26 @@ public static class CryptoService
     /// <summary>
     /// Encrypts UTF-8 string to Base64 encoded packed ciphertext.
     /// </summary>
-    public static string EncryptString(string plaintext, byte[] key)
+    public static string EncryptString(string plaintext, byte[] key, byte[]? associatedData = null)
     {
-        if (string.IsNullOrEmpty(plaintext)) return string.Empty;
+        if (string.IsNullOrEmpty(plaintext) && associatedData == null) return string.Empty;
         var plainBytes = Encoding.UTF8.GetBytes(plaintext);
-        var encrypted = Encrypt(plainBytes, key);
-        return Convert.ToBase64String(encrypted);
+        try { return Convert.ToBase64String(Encrypt(plainBytes, key, associatedData)); }
+        finally { ZeroMemory(plainBytes); }
     }
 
     /// <summary>
     /// Decrypts Base64 encoded packed ciphertext to UTF-8 string.
     /// </summary>
-    public static string DecryptString(string base64Ciphertext, byte[] key)
+    public static string DecryptString(string base64Ciphertext, byte[] key, byte[]? associatedData = null)
     {
-        if (string.IsNullOrEmpty(base64Ciphertext)) return string.Empty;
-        var packed = Convert.FromBase64String(base64Ciphertext);
-        var decrypted = Decrypt(packed, key);
-        return Encoding.UTF8.GetString(decrypted);
+        if (string.IsNullOrEmpty(base64Ciphertext) && associatedData == null) return string.Empty;
+        byte[] packed;
+        try { packed = Convert.FromBase64String(base64Ciphertext); }
+        catch (FormatException ex) { throw new CryptographicException("Ungültiges Format verschlüsselter Daten.", ex); }
+        var decrypted = Decrypt(packed, key, associatedData);
+        try { return Encoding.UTF8.GetString(decrypted); }
+        finally { ZeroMemory(decrypted); }
     }
 
     /// <summary>
