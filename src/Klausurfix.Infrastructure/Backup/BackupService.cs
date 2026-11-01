@@ -65,6 +65,8 @@ public class BackupService
     {
         if (string.IsNullOrWhiteSpace(recoveryKey))
             throw new ArgumentException("Wiederherstellungsschlüssel erforderlich.", nameof(recoveryKey));
+        if (!_keyManager.VerifyRecoveryKey(recoveryKey))
+            throw new UnauthorizedAccessException("Der Wiederherstellungsschlüssel ist nicht korrekt.");
 
         // 1. Gather all data
         var payload = new BackupPayload
@@ -124,12 +126,12 @@ public class BackupService
         AppPaths.EnsureDirectoriesExist();
         var backupBytes = CreateBackupBytes(recoveryKey);
         var timeStamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss");
-        var fileName = $"klausurfix_backup_{timeStamp}.kfbak";
+        var fileName = $"klausurfix_backup_{timeStamp}_{Guid.NewGuid():N}.kfbak";
         var finalPath = Path.Combine(AppPaths.BackupsDirectory, fileName);
         var tempPath = Path.Combine(AppPaths.BackupsDirectory, $"{fileName}.tmp");
 
         File.WriteAllBytes(tempPath, backupBytes);
-        File.Move(tempPath, finalPath, overwrite: true);
+        File.Move(tempPath, finalPath, overwrite: false);
 
         var fi = new FileInfo(finalPath);
         return new ManagedBackupInfo
@@ -184,28 +186,7 @@ public class BackupService
         var payload = JsonSerializer.Deserialize<BackupPayload>(payloadJson)
             ?? throw new InvalidOperationException("Sicherungsdaten konnten nicht gelesen werden.");
 
-        // 4. Restore into active database
-        _dbContext.InitializeDatabase();
-
-        foreach (var sf in payload.Schulformen)
-        {
-            _dbContext.SaveSchulform(sf);
-        }
-
-        foreach (var cls in payload.Classes)
-        {
-            _dbContext.SaveClass(cls);
-        }
-
-        foreach (var st in payload.Students)
-        {
-            _dbContext.SaveStudent(st);
-        }
-
-        foreach (var ex in payload.Exams)
-        {
-            _dbContext.SaveExam(ex);
-        }
+        _dbContext.ReplaceFromBackup(payload);
     }
 
     public void RestoreManagedBackup(string fileName, string recoveryKey)

@@ -10,6 +10,7 @@ public class KeyEnvelope
     public int Version { get; set; } = 1;
     public string MasterSalt { get; set; } = string.Empty;
     public string EncryptedDekWithPin { get; set; } = string.Empty;
+    public bool PinBoundToWindows { get; set; }
     public string EncryptedDekWithRecovery { get; set; } = string.Empty;
     public string RecoveryKeyHint { get; set; } = string.Empty; // e.g. first/last 4 chars
     public string? EncryptedDekWithDpapi { get; set; } = null;
@@ -23,6 +24,9 @@ public class KeyEnvelope
 
 public class KeyManager
 {
+    private readonly ILocalKeyProtector _localProtector;
+    public KeyManager(ILocalKeyProtector? localProtector = null) =>
+        _localProtector = localProtector ?? new UserKeyProtector();
     private readonly object _lock = new();
     private byte[]? _activeDek;
     private DateTimeOffset _lastActivityUtc = DateTimeOffset.UtcNow;
@@ -106,25 +110,25 @@ public class KeyManager
                 throw new InvalidOperationException("Anwendung ist gesperrt. Bitte zuerst mit PIN oder Windows Hello entsperren.");
             }
             RecordActivity();
-            return _activeDek;
+            return (byte[])_activeDek.Clone();
         }
     }
 
     public static string GenerateRecoveryKey()
     {
         // 16 cryptographically random bytes formatted as 4 groups of 4 chars
-        var bytes = CryptoService.GenerateRandomBytes(15);
+        var bytes = CryptoService.GenerateRandomBytes(16);
         var base32 = Convert.ToHexString(bytes).ToUpperInvariant();
         // Format as KF-XXXX-XXXX-XXXX-XXXX
-        return $"KF-{base32.Substring(0, 4)}-{base32.Substring(4, 4)}-{base32.Substring(8, 4)}-{base32.Substring(12, 4)}";
+        return "KF-" + string.Join('-', Enumerable.Range(0, 8).Select(i => base32.Substring(i * 4, 4)));
     }
 
     public void Setup(string pin, string recoveryKey, int inactivityTimeoutMinutes = 15)
     {
         lock (_lock)
         {
-            if (string.IsNullOrWhiteSpace(pin) || pin.Length < 6)
-                throw new ArgumentException("PIN muss mindestens 6 Stellen lang sein.", nameof(pin));
+            if (string.IsNullOrWhiteSpace(pin) || pin.Length is < 6 or > 64 || pin.Any(c => c is < '0' or > '9'))
+                throw new ArgumentException("PIN muss aus 6 bis 64 Ziffern bestehen.", nameof(pin));
             if (string.IsNullOrWhiteSpace(recoveryKey))
                 throw new ArgumentException("Wiederherstellungsschlüssel ist erforderlich.", nameof(recoveryKey));
 
@@ -135,7 +139,7 @@ public class KeyManager
 
             // Encrypt DEK with PIN
             var kekPin = CryptoService.DeriveKey(pin, masterSalt);
-            var encryptedDekPin = CryptoService.Encrypt(dek, kekPin);
+            var encryptedDekPin = _localProtector.Protect(CryptoService.Encrypt(dek, kekPin));
             CryptoService.ZeroMemory(kekPin);
 
             // Encrypt DEK with Recovery Key
@@ -143,29 +147,15 @@ public class KeyManager
             var encryptedDekRec = CryptoService.Encrypt(dek, kekRec);
             CryptoService.ZeroMemory(kekRec);
 
-            // Protect DEK with DPAPI if on Windows
-            string? dpapiEnc = null;
-            if (OperatingSystem.IsWindows())
-            {
-                try
-                {
-                    var dpapiBytes = WindowsDpapiProtector.Protect(dek);
-                    dpapiEnc = Convert.ToBase64String(dpapiBytes);
-                }
-                catch
-                {
-                    dpapiEnc = null;
-                }
-            }
-
             var env = new KeyEnvelope
             {
                 Version = 1,
                 MasterSalt = Convert.ToBase64String(masterSalt),
                 EncryptedDekWithPin = Convert.ToBase64String(encryptedDekPin),
+                PinBoundToWindows = true,
                 EncryptedDekWithRecovery = Convert.ToBase64String(encryptedDekRec),
                 RecoveryKeyHint = recoveryKey.Length > 8 ? $"{recoveryKey.Substring(0, 4)}...{recoveryKey.Substring(recoveryKey.Length - 4)}" : "****",
-                EncryptedDekWithDpapi = dpapiEnc,
+                EncryptedDekWithDpapi = null,
                 InactivityTimeoutMinutes = inactivityTimeoutMinutes,
                 FailedPinAttempts = 0,
                 LockedUntilUtc = null
@@ -200,7 +190,18 @@ public class KeyManager
             try
             {
                 var encryptedDekPin = Convert.FromBase64String(env.EncryptedDekWithPin);
+                if (env.PinBoundToWindows) encryptedDekPin = _localProtector.Unprotect(encryptedDekPin);
                 var dek = CryptoService.Decrypt(encryptedDekPin, kekPin);
+
+                // Upgrade legacy envelopes only after the existing PIN is verified.
+                if (!env.PinBoundToWindows)
+                {
+                    env.EncryptedDekWithPin = Convert.ToBase64String(_localProtector.Protect(encryptedDekPin));
+                    env.PinBoundToWindows = true;
+                }
+                env.EncryptedDekWithDpapi = null;
+                env.HelloCredentialId = null;
+                env.HelloPublicKey = null;
 
                 // Success!
                 env.FailedPinAttempts = 0;
@@ -265,6 +266,10 @@ public class KeyManager
 
                 env.FailedPinAttempts = 0;
                 env.LockedUntilUtc = null;
+                // Remove the former DPAPI-only shortcut after recovery as well.
+                env.EncryptedDekWithDpapi = null;
+                env.HelloCredentialId = null;
+                env.HelloPublicKey = null;
                 SaveEnvelopeInternal(env);
 
                 if (_activeDek != null)
@@ -287,56 +292,21 @@ public class KeyManager
         }
     }
 
-    public (bool Success, string Message) UnlockWithDpapiSession()
+    public bool VerifyRecoveryKey(string recoveryKey)
     {
         lock (_lock)
         {
             var env = GetEnvelopeInternal();
-            if (env == null)
-                return (false, "Die Anwendung ist noch nicht eingerichtet.");
-
-            if (string.IsNullOrEmpty(env.EncryptedDekWithDpapi) || !OperatingSystem.IsWindows())
-                return (false, "Windows Hello / DPAPI ist für dieses Profil nicht eingerichtet.");
-
+            if (env == null || _activeDek == null) return false;
+            var key = CryptoService.DeriveKey(recoveryKey.Trim().ToUpperInvariant(), Convert.FromBase64String(env.MasterSalt));
             try
             {
-                var dpapiBytes = Convert.FromBase64String(env.EncryptedDekWithDpapi);
-                var dek = WindowsDpapiProtector.Unprotect(dpapiBytes);
-
-                if (_activeDek != null)
-                {
-                    CryptoService.ZeroMemory(_activeDek);
-                }
-                _activeDek = dek;
-                _lastActivityUtc = DateTimeOffset.UtcNow;
-
-                return (true, "Erfolgreich mit Windows Hello entsperrt.");
+                var candidate = CryptoService.Decrypt(Convert.FromBase64String(env.EncryptedDekWithRecovery), key);
+                try { return CryptographicOperations.FixedTimeEquals(candidate, _activeDek); }
+                finally { CryptoService.ZeroMemory(candidate); }
             }
-            catch (Exception ex)
-            {
-                return (false, $"Windows Hello Entsperrung fehlgeschlagen: {ex.Message}");
-            }
-        }
-    }
-
-    public void RegisterHello(string credentialId, string publicKey)
-    {
-        lock (_lock)
-        {
-            var dek = GetActiveDek();
-            var env = GetEnvelopeInternal() ?? throw new InvalidOperationException("Nicht eingerichtet.");
-
-            env.HelloCredentialId = credentialId;
-            env.HelloPublicKey = publicKey;
-            env.HelloSignCount = 0;
-
-            if (OperatingSystem.IsWindows())
-            {
-                var dpapiBytes = WindowsDpapiProtector.Protect(dek);
-                env.EncryptedDekWithDpapi = Convert.ToBase64String(dpapiBytes);
-            }
-
-            SaveEnvelopeInternal(env);
+            catch (CryptographicException) { return false; }
+            finally { CryptoService.ZeroMemory(key); }
         }
     }
 
@@ -357,8 +327,11 @@ public class KeyManager
         lock (_lock)
         {
             var env = GetEnvelopeInternal() ?? throw new InvalidOperationException("Nicht eingerichtet.");
-            if (string.IsNullOrWhiteSpace(newPin) || newPin.Length < 6)
-                throw new ArgumentException("Neue PIN muss mindestens 6 Stellen lang sein.", nameof(newPin));
+            if (string.IsNullOrWhiteSpace(newPin) || newPin.Length is < 6 or > 64 || newPin.Any(c => c is < '0' or > '9'))
+                throw new ArgumentException("Die neue PIN muss aus 6 bis 64 Ziffern bestehen.", nameof(newPin));
+
+            var verification = UnlockWithPin(oldPin);
+            if (!verification.Success) throw new UnauthorizedAccessException(verification.Message);
 
             // Verify old PIN
             var masterSalt = Convert.FromBase64String(env.MasterSalt);
@@ -367,6 +340,7 @@ public class KeyManager
             try
             {
                 var encOld = Convert.FromBase64String(env.EncryptedDekWithPin);
+                if (env.PinBoundToWindows) encOld = _localProtector.Unprotect(encOld);
                 dek = CryptoService.Decrypt(encOld, kekOld);
             }
             catch (CryptographicException)
@@ -380,10 +354,12 @@ public class KeyManager
 
             // Encrypt DEK with new PIN
             var kekNew = CryptoService.DeriveKey(newPin, masterSalt);
-            var encNew = CryptoService.Encrypt(dek, kekNew);
+            var encNew = _localProtector.Protect(CryptoService.Encrypt(dek, kekNew));
             CryptoService.ZeroMemory(kekNew);
 
             env.EncryptedDekWithPin = Convert.ToBase64String(encNew);
+            env.PinBoundToWindows = true;
+            env.EncryptedDekWithDpapi = null;
             env.FailedPinAttempts = 0;
             env.LockedUntilUtc = null;
             SaveEnvelopeInternal(env);
@@ -430,7 +406,9 @@ public class KeyManager
     {
         AppPaths.EnsureDirectoriesExist();
         var json = JsonSerializer.Serialize(envelope, new JsonSerializerOptions { WriteIndented = true });
-        File.WriteAllText(AppPaths.KeyEnvelopeFile, json, Encoding.UTF8);
+        var temporary = AppPaths.KeyEnvelopeFile + ".tmp";
+        File.WriteAllText(temporary, json, Encoding.UTF8);
+        File.Move(temporary, AppPaths.KeyEnvelopeFile, true);
         _envelope = envelope;
     }
 }

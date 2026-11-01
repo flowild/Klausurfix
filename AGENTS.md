@@ -2,9 +2,8 @@
 
 ## Arbeitsstand und Auftrag
 
-- Stand: 1. November 2026. Das Repository enthält bislang keine Anwendung.
-- Aktuell ist die Planung samt dieser Datei beauftragt. Noch keinen Anwendungscode, kein Projektgerüst und keine Abhängigkeiten anlegen. Die ursprüngliche Vorgabe „noch keinen Code“ bleibt für diese Planungsrunde bestehen.
-- Die zuletzt genannten Funktionen einschließlich PIN, Verschlüsselung und Windows Hello sind Anforderungen an die spätere Implementierung.
+- Stand: 1. November 2026. Eine erste lokale Anwendung ist vorhanden; der Nutzer hat die Behebung der bei der Überprüfung festgestellten Probleme beauftragt.
+- PIN und Verschlüsselung sind Anforderungen der Anwendung. Windows Hello bleibt eine Anforderung, ist jedoch bis zur Implementierung und Prüfung einer echten Benutzerverifikation deaktiviert.
 - Bei ausdrücklichem Implementierungsauftrag innerhalb dieses Umfangs selbstständig weiterarbeiten. Routineentscheidungen treffen; nur fachlich notwendige offene Punkte klären.
 - Mit der Nutzerin bzw. dem Nutzer auf Deutsch kommunizieren. Die Oberfläche und Dokumente sind deutschsprachig.
 - Festgelegte Anforderungen von Vorschlägen und offenen Entscheidungen unterscheiden. Keine amtlichen Bewertungsregeln erfinden.
@@ -27,14 +26,35 @@ Eine Lehrerin verwaltet Klassen und Klausuren, erfasst Leistungen und Rechtschre
 
 - Schulformen frei anlegen, bearbeiten und löschen bzw. bei bestehenden Referenzen archivieren können.
 - Eine Klasse gehört zu einer Schulform.
-- Je Schulform einstellen, ob der Fehlerquotient einen Abzug ganzer Schulnoten oder einen Abzug von Notenpunkten auslöst.
+- Je Schulform einstellen, ob der Fehlerquotient einen Abzug ganzer Schulnoten, von Notenpunkten oder eines Prozentsatzes der maximalen Gesamtpunktzahl auslöst. Notenskala und Abzugsart getrennt speichern.
 - Frei konfigurierbare Tabelle: Fehlerquotient ab einer Grenze und dazugehöriger Abzug. Beliebig viele Stufen und eine Vorschau anhand von Beispielen ermöglichen.
 - Grenzen aufsteigend, eindeutig und ohne widersprüchliche Intervalle prüfen. Semantik sichtbar festlegen: Eine Stufe gilt ab ihrer Grenze einschließlich bis zur nächsten Grenze ausschließlich.
 - Unterhalb der ersten Abzugsgrenze beträgt der Abzug null. Negative Abzüge und negative Grenzen sind ungültig.
 - Das Notensystem und die Abzugseinheit als getrennte, aber konsistent zu validierende Einstellungen behandeln.
 - Bei Schulnoten verschlechtert ein Abzug die Note numerisch nach oben; bei Notenpunkten vermindert er den Wert. Ergebnis an die Grenzen des ausgewählten Systems begrenzen.
+- Bei prozentualem Punkteabzug: Abzugspunkte = maximale Gesamtpunktzahl der Klausur × Abzugsprozentsatz / 100. Die Abzugspunkte von den erreichten Rohpunkten abziehen und das Ergebnis bei null begrenzen. Erst die bereinigten Punkte über den Notenschlüssel in die Endnote umrechnen; die maximale Gesamtpunktzahl bleibt unverändert.
 - Ein prozentualer bzw. punktbasierter Notenschlüssel muss einstellbar sein. Die konkrete Standardbelegung und Rundung sind noch offen.
-- Keine fest eingebauten bundesland- oder schulformspezifischen Tabellen als verbindlich ausgeben.
+- Keine nicht bestätigten bundesland- oder schulformspezifischen Tabellen als verbindlich ausgeben. Die folgenden vom Nutzer festgelegten Profile als bearbeitbare Vorgaben anbieten; sie sind keine eigenständig geprüften amtlichen Regeln.
+
+### Vom Nutzer festgelegte Schulformen und Abzüge
+
+Beide Notenskalen werden benötigt. Die folgenden Stufen gelten jeweils ab der genannten FQ-Grenze einschließlich. Nur die höchste erreichte Stufe anwenden; die Stufen werden nicht addiert. Grenzen anhand des ungerundeten Fehlerquotienten vergleichen.
+
+| Schulform | Notenskala | Fehlerquotient (FQ) | Abzug |
+| --- | --- | --- | --- |
+| Berufliches Gymnasium | Notenpunkte 0–15 | FQ < 3 | Kein Abzug |
+| Berufliches Gymnasium | Notenpunkte 0–15 | 3 ≤ FQ < 6 | 1 Notenpunkt |
+| Berufliches Gymnasium | Notenpunkte 0–15 | FQ ≥ 6 | 2 Notenpunkte |
+| Fachschule Sozialwesen | Schulnoten 1–6 | FQ < 2 | Kein Abzug |
+| Fachschule Sozialwesen | Schulnoten 1–6 | 2 ≤ FQ < 4 | 1 % der maximalen Gesamtpunktzahl |
+| Fachschule Sozialwesen | Schulnoten 1–6 | 4 ≤ FQ < 6 | 3 % der maximalen Gesamtpunktzahl |
+| Fachschule Sozialwesen | Schulnoten 1–6 | FQ ≥ 6 | 6 % der maximalen Gesamtpunktzahl |
+
+- Berufliches Gymnasium: zunächst die Ausgangsnotenpunkte aus den Rohpunkten bestimmen, anschließend 0, 1 oder 2 Notenpunkte abziehen; die Endnotenpunkte dürfen nicht unter null fallen.
+- Fachschule Sozialwesen: Der Abzug bezieht sich auf die maximal erreichbaren Klausurpunkte, nicht auf die vom Schüler erreichten Punkte. Kein zusätzlicher Abzug ganzer Schulnoten.
+- Beispiel Fachschule Sozialwesen: maximal 100 Punkte, erreicht 80 Punkte, FQ 6 → 6 Punkte Abzug → 74 bereinigte Punkte → Endnote anhand des Notenschlüssels für 74 %.
+- Prozentuale Abzüge dürfen dezimale Abzugspunkte ergeben. Ohne vereinbarte Rundungsregel nicht vor der Notenumrechnung auf ganze Punkte runden.
+- Vorhandene Klausur-Snapshots bei Einführung dieser Vorgaben nicht automatisch überschreiben. Bestehende benutzerdefinierte Schulformen und Profile erhalten.
 
 ### Klassen und Schüler
 
@@ -57,7 +77,7 @@ Eine Lehrerin verwaltet Klassen und Klausuren, erfasst Leistungen und Rechtschre
 - Wortanzahl und Fehleranzahl sind nichtnegative ganze Zahlen. Wortanzahl null oder fehlend ergibt keinen berechenbaren Fehlerquotienten und darf nicht als null gewertet werden.
 - Beispiel: 12 Fehler und 600 Wörter ergeben einen Fehlerquotienten von 2.
 - Punkte müssen zwischen null und der jeweiligen Aufgabenhöchstpunktzahl liegen. Dezimale Punkte technisch ermöglichen; erlaubte Schrittweite bleibt konfigurierbar bzw. fachlich zu klären.
-- Rohpunkte → Anteil an Gesamtpunkten → Ausgangsnote → Fehlerquotient → zutreffender Abzug → Endnote getrennt darstellen und nachvollziehbar berechnen.
+- Rohpunkte, Ausgangsnote, Fehlerquotient, zutreffenden Abzug und Endnote getrennt und nachvollziehbar darstellen. Bei direktem Noten-/Notenpunktabzug zuerst die Ausgangsnote bestimmen und dann den Abzug anwenden. Bei prozentualem Punkteabzug zuerst die Punkte bereinigen und daraus die Endnote bestimmen; Abzugsprozentsatz, Abzugspunkte und bereinigte Punkte zusätzlich anzeigen.
 - Für Grenzvergleiche keine vorab gerundeten Anzeigewerte verwenden. Dezimalarithmetik bzw. exakte Vergleiche einsetzen, damit Grenzwerte stabil bleiben.
 - Anzeigepräzision und fachliche Rundung getrennt festlegen. Noch keine willkürliche Rundungsregel verbindlich machen.
 - Fehlend, nicht teilgenommen, unvollständig und tatsächlich null Punkte sind unterschiedliche Zustände.
@@ -88,7 +108,7 @@ Eine Lehrerin verwaltet Klassen und Klausuren, erfasst Leistungen und Rechtschre
 
 - Je Klausur ein gemeinsames, ansprechend gestaltetes Dokument als PDF oder echtes DOCX herunterladen können.
 - Keine Einzelblätter pro Schüler erstellen.
-- Enthalten sind Klausurtitel, Datum, Klasse/Schulform, Aufgabenhöchstpunkte, Schülernamen, Punkte je Aufgabe, Gesamtpunkte, Wortanzahl, Rechtschreibfehler, Fehlerquotient, Ausgangsnote, Abzug, Endnote, Klassendurchschnitt und Notenspiegel.
+- Enthalten sind Klausurtitel, Datum, Klasse/Schulform, Aufgabenhöchstpunkte, Schülernamen, Punkte je Aufgabe, Gesamtpunkte, Wortanzahl, Rechtschreibfehler, Fehlerquotient, Ausgangsnote, Abzug, Endnote, Klassendurchschnitt und Notenspiegel. Bei prozentualem Punkteabzug auch Abzugsprozentsatz, Abzugspunkte und bereinigte Punkte ausgeben.
 - Verwendete Bewertungsregeln und Anzahl gewerteter Ergebnisse dokumentieren; unvollständige Ergebnisse kennzeichnen.
 - Wiederholte Tabellenüberschriften, Seitenzahlen, lesbare Schrift und sinnvolle Seitenumbrüche; breite Tabellen bei Bedarf im Querformat.
 - PDF und DOCX aus demselben fachlichen Auswertungsmodell erstellen. Alle Ressourcen lokal mitliefern.
@@ -160,7 +180,8 @@ Der vorhandene Sites-Skill liegt derzeit unter `C:/Users/flowi/.codex/plugins/ca
 
 ## Prüfungen vor Abnahme
 
-- Fachlogik: Quotient, null Wörter, null Fehler, exakte Stufengrenzen, direkt darüber/darunter, beide Abzugssysteme, Notengrenzen, Dezimalpunkte, fehlende Ergebnisse und Durchschnitt.
+- Fachlogik: Quotient, null Wörter, null Fehler, exakte Stufengrenzen, direkt darüber/darunter, alle drei Abzugsarten, Notengrenzen, Dezimalpunkte, fehlende Ergebnisse und Durchschnitt.
+- Nutzerprofile: Berufliches Gymnasium an FQ 3 und 6 mit 1 bzw. 2 Notenpunkten Abzug; Fachschule Sozialwesen an FQ 2, 4 und 6 mit 1 %, 3 % bzw. 6 % der maximalen Gesamtpunktzahl prüfen. Zusätzlich Werte direkt unter den Grenzen, nicht kumulierte Abzüge, unterschiedliche Gesamtpunktzahlen, dezimale Abzugspunkte und Begrenzung bei null testen.
 - Historie: Änderungen an Schulform, Klassenliste oder Notenschlüssel verändern frühere Klausuren nicht stillschweigend.
 - Datensicherheit: falsche PIN, Verzögerung bei Fehlversuchen, direkte API-Aufrufe im gesperrten Zustand, abgebrochenes Hello, wiederholte Challenge, falsche Origin, Inaktivität und Standby.
 - Verschlüsselung: Datenbank, Journale und Sicherungen enthalten keine personenbezogenen Klartexte; manipulierte verschlüsselte Daten werden abgewiesen.
@@ -172,7 +193,7 @@ Der vorhandene Sites-Skill liegt derzeit unter `C:/Users/flowi/.codex/plugins/ca
 
 ## Noch offene fachliche Entscheidungen
 
-- Welche Notenskalen sind nötig: 1–6, 0–15 oder beide? Wie lautet der Standard-Notenschlüssel?
+- Beide Notenskalen sind festgelegt: 0–15 für Berufliches Gymnasium und 1–6 für Fachschule Sozialwesen. Noch offen sind die konkreten Prozent-/Punktgrenzen der jeweiligen Notenschlüssel.
 - Welche Rundungsregeln und welche Schrittweite für Aufgabenpunkte gelten?
 - Sind zusätzliche Grenzen für den Abzug gewünscht, beispielsweise maximal eine Note oder maximal zwei Notenpunkte unabhängig von der Tabelle?
 - Gewünschte Inaktivitätsdauer, PIN-Mindestlänge und genaue Einrichtung des Wiederherstellungsschlüssels.

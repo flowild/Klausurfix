@@ -9,6 +9,7 @@ public record Student
     public int OrderIndex { get; init; } = 0;
     public bool IsArchived { get; init; } = false;
 
-    public string FullName => string.IsNullOrWhiteSpace(FirstName) ? LastName : $"{LastName}, {FirstName}";
+    public string FullName => string.IsNullOrWhiteSpace(LastName) ? FirstName :
+        string.IsNullOrWhiteSpace(FirstName) ? LastName : $"{LastName}, {FirstName}";
 }
 

@@ -15,6 +15,20 @@ const state = {
   saveTimeout: null,
   lockoutInterval: null
 };
+const collapsedClasses = new Set();
+const themeToggle = document.getElementById("themeToggle");
+function updateThemeButton() {
+  const dark = document.documentElement.dataset.theme === "dark";
+  themeToggle.setAttribute("aria-pressed", String(dark));
+  themeToggle.innerHTML = dark ? '☀ <span>Hellmodus</span>' : '☾ <span>Darkmode</span>';
+}
+themeToggle.addEventListener("click", () => {
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem("klausurfix-theme", next); } catch {}
+  updateThemeButton();
+});
+updateThemeButton();
 
 // Formatting helpers
 const formatNumber = (num, decimals = 1) => {
@@ -28,7 +42,8 @@ const formatNumber = (num, decimals = 1) => {
 const parseGermanNumber = (str) => {
   if (!str) return null;
   const normalized = str.toString().trim().replace(",", ".");
-  const val = parseFloat(normalized);
+  if (!/^\d+(?:\.\d+)?$/.test(normalized)) return null;
+  const val = Number(normalized);
   return isNaN(val) ? null : val;
 };
 
@@ -45,7 +60,15 @@ export function showToast(message, type = "info") {
 }
 
 // Router & View Switcher
-export function switchView(viewName) {
+export function switchView(viewName, historyMode = "push") {
+  const sensitiveView = viewName === "setup" || viewName === "unlock" || viewName === "stopped";
+  const route = { klausurfix: true, view: viewName, examId: ["eingabetabelle", "auswertung"].includes(viewName) ? state.currentExamId : null };
+  if (historyMode !== "none") {
+    const url = `#/${viewName}${route.examId ? `/${encodeURIComponent(route.examId)}` : ""}`;
+    const current = history.state;
+    if (historyMode === "replace" || sensitiveView || !current?.klausurfix) history.replaceState(route, "", url);
+    else if (current.view !== route.view || current.examId !== route.examId) history.pushState(route, "", url);
+  }
   state.currentView = viewName;
   document.querySelectorAll(".view").forEach(el => el.classList.remove("active"));
   document.querySelectorAll(".nav-btn").forEach(el => {
@@ -53,7 +76,7 @@ export function switchView(viewName) {
   });
 
   const header = document.getElementById("appHeader");
-  if (viewName === "setup" || viewName === "unlock") {
+  if (viewName === "setup" || viewName === "unlock" || viewName === "stopped") {
     header.style.display = "none";
   } else {
     header.style.display = "block";
@@ -72,6 +95,27 @@ export function switchView(viewName) {
   else if (viewName === "settings") loadSettings();
 }
 
+window.addEventListener("popstate", async event => {
+  const route = event.state;
+  if (!state.isUnlocked || !route?.klausurfix) {
+    switchView(state.isInitialized ? "unlock" : "setup", "replace");
+    return;
+  }
+  if (state.currentView === "eingabetabelle") {
+    try { await flushPendingSave(); }
+    catch (err) {
+      showToast(err.message || "Bitte die Eingaben prüfen.", "error");
+      const current = { klausurfix: true, view: "eingabetabelle", examId: state.currentExamId };
+      history.pushState(current, "", `#/eingabetabelle/${encodeURIComponent(state.currentExamId)}`);
+      return;
+    }
+  }
+  if (route.view === "eingabetabelle" && route.examId) openExamMatrix(route.examId, true);
+  else if (route.view === "auswertung" && route.examId) openExamAuswertung(route.examId, true);
+  else if (["dashboard", "klassen", "schulformen", "klausurNeu", "settings"].includes(route.view)) switchView(route.view, "none");
+  else switchView("dashboard", "replace");
+});
+
 // Global initialization
 async function init() {
   try {
@@ -87,7 +131,11 @@ async function init() {
     } else if (!state.isUnlocked) {
       switchView("unlock");
     } else {
-      switchView("dashboard");
+      const route = history.state;
+      if (route?.klausurfix && route.view === "eingabetabelle" && route.examId) openExamMatrix(route.examId, true);
+      else if (route?.klausurfix && route.view === "auswertung" && route.examId) openExamAuswertung(route.examId, true);
+      else if (route?.klausurfix && ["dashboard", "klassen", "schulformen", "klausurNeu", "settings"].includes(route.view)) switchView(route.view, "none");
+      else switchView("dashboard", "replace");
     }
   } catch (err) {
     console.error("Init failed:", err);
@@ -131,22 +179,22 @@ document.getElementById("copyRecoveryKeyBtn").addEventListener("click", () => {
 
 // Unlock Screen Logic (Numpad + Keyboard)
 function updatePinDots() {
-  const dots = document.querySelectorAll("#pinDisplay .pin-dot");
-  dots.forEach((dot, idx) => {
-    dot.classList.toggle("filled", idx < state.pinBuffer.length);
-  });
+  const display = document.getElementById("pinDisplay");
+  display.replaceChildren(...Array.from({ length: Math.max(6, state.pinBuffer.length) }, (_, idx) => {
+    const dot = document.createElement("div");
+    dot.className = idx < state.pinBuffer.length ? "pin-dot filled" : "pin-dot";
+    return dot;
+  }));
 }
 
 async function handlePinInput(digit) {
-  if (state.pinBuffer.length >= 8) return;
+  if (state.pinBuffer.length >= 64) return;
   state.pinBuffer += digit;
   updatePinDots();
 
-  if (state.pinBuffer.length >= 6) {
-    // Attempt unlock automatically when at least 6 digits are reached
-    await submitPin();
-  }
 }
+
+document.getElementById("submitPinBtn").addEventListener("click", submitPin);
 
 function handlePinBackspace() {
   if (state.pinBuffer.length > 0) {
@@ -200,6 +248,8 @@ window.addEventListener("keydown", (e) => {
     handlePinBackspace();
   } else if (e.key === "Escape") {
     handlePinClear();
+  } else if (e.key === "Enter") {
+    submitPin();
   }
 });
 
@@ -222,14 +272,29 @@ document.getElementById("unlockHelloBtn").addEventListener("click", async () => 
 // Manual Lock
 document.getElementById("lockBtn").addEventListener("click", async () => {
   try {
+    await flushPendingSave();
     await api.lock();
-    state.isUnlocked = false;
-    state.pinBuffer = "";
-    updatePinDots();
+    window.dispatchEvent(new CustomEvent("klausurfix:locked"));
     showToast("Anwendung gesperrt.", "info");
-    switchView("unlock");
   } catch (err) {
     console.error(err);
+  }
+});
+
+document.getElementById("shutdownBtn").addEventListener("click", async () => {
+  try {
+    await flushPendingSave();
+    if (!confirm("Klausurfix jetzt beenden?")) return;
+    await api.shutdown();
+    state.isUnlocked = false;
+    state.activeExam = null;
+    state.activeExamEntries = [];
+    state.classes = [];
+    state.exams = [];
+    document.getElementById("matrixTableContainer").replaceChildren();
+    switchView("stopped");
+  } catch (err) {
+    showToast(err.message || "Klausurfix konnte nicht beendet werden.", "error");
   }
 });
 
@@ -237,8 +302,24 @@ window.addEventListener("klausurfix:locked", () => {
   state.isUnlocked = false;
   state.pinBuffer = "";
   updatePinDots();
+  state.activeExam = null;
+  state.activeExamEntries = [];
+  state.classes = [];
+  state.exams = [];
+  for (const id of ["matrixTableContainer", "backupsListTable"]) {
+    document.getElementById(id).replaceChildren();
+  }
   switchView("unlock");
 });
+
+// Status requests do not extend the server inactivity deadline.
+setInterval(async () => {
+  if (!state.isUnlocked) return;
+  try {
+    const status = await api.getSetupStatus();
+    if (!status.isUnlocked) window.dispatchEvent(new CustomEvent("klausurfix:locked"));
+  } catch { window.dispatchEvent(new CustomEvent("klausurfix:locked")); }
+}, 5000);
 
 // Navigation links
 document.querySelectorAll(".nav-btn").forEach(btn => {
@@ -261,9 +342,6 @@ async function loadDashboard() {
     ]);
     state.classes = classes;
     state.exams = exams;
-
-    document.getElementById("statClassesCount").textContent = classes.length;
-    document.getElementById("statExamsCount").textContent = exams.length;
 
     const tbody = document.getElementById("dashboardExamsList");
     tbody.innerHTML = "";
@@ -320,7 +398,7 @@ async function loadSchulformen() {
       card.className = "card";
 
       const systemLabel = sf.profile.system === 1 ? "Schulnoten (1–6)" : "Notenpunkte (0–15)";
-      const unitLabel = sf.profile.deductionUnit === 1 ? "Schulnoten" : "Notenpunkte";
+      const unitLabel = sf.profile.deductionUnit === 1 ? "Schulnoten" : sf.profile.deductionUnit === 2 ? "Notenpunkte" : "% der Gesamtpunkte";
 
       let tiersHtml = sf.profile.deductionTiers.map(t =>
         `<li>ab FQ <strong>${formatNumber(t.threshold, 2)}</strong>: <strong>-${formatNumber(t.deduction, 1)}</strong> ${unitLabel}</li>`
@@ -341,7 +419,7 @@ async function loadSchulformen() {
             ${tiersHtml || "<li>Keine Abzüge konfiguriert</li>"}
           </ul>
           <p style="font-weight: 600; margin-bottom: 0.25rem;">Notenschlüssel (${sf.profile.gradeKey.length} Stufen):</p>
-          <p style="color: var(--gray-500); font-size: 0.85rem;">z. B. ab ${formatNumber(sf.profile.gradeKey[0]?.minPercentage, 1)}% (${sf.profile.gradeKey[0]?.label}) bis 0% (${sf.profile.gradeKey[sf.profile.gradeKey.length - 1]?.label})</p>
+          <p style="color: var(--gray-500); font-size: 0.85rem;">z. B. ab ${formatNumber(sf.profile.gradeKey[0]?.minPercentage, 1)}% (${escapeHtml(sf.profile.gradeKey[0]?.label || '')}) bis 0% (${escapeHtml(sf.profile.gradeKey[sf.profile.gradeKey.length - 1]?.label || '')}). Bitte die Notengrenzen für Ihre Schule prüfen.</p>
         </div>
       `;
 
@@ -404,8 +482,15 @@ function openEditSchulformModal(id) {
             <select id="sfDeductionUnitSelect" class="form-control">
               <option value="1" ${currentProfile.deductionUnit === 1 ? 'selected' : ''}>Ganze Schulnoten</option>
               <option value="2" ${currentProfile.deductionUnit === 2 ? 'selected' : ''}>Notenpunkte</option>
+              <option value="3" ${currentProfile.deductionUnit === 3 ? 'selected' : ''}>Prozent der maximalen Gesamtpunkte</option>
             </select>
           </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 1rem;">
+          <label class="form-label" for="gradeKeyInput">Notenschlüssel: Mindestprozent; Note / Notenpunkte</label>
+          <textarea id="gradeKeyInput" class="form-control" rows="7" spellcheck="false">${currentProfile.gradeKey.map(b => `${b.minPercentage};${b.gradeValue}`).join('\n')}</textarea>
+          <p class="form-hint">Eine Stufe pro Zeile, zum Beispiel 87,5;1. Die letzte Stufe muss bei 0 beginnen.</p>
         </div>
 
         <!-- Tiers Table -->
@@ -516,11 +601,18 @@ function openEditSchulformModal(id) {
   modal.querySelector("#previewWords").addEventListener("input", updatePreview);
   modal.querySelector("#previewErrors").addEventListener("input", updatePreview);
 
-  modal.querySelector("#sfSystemSelect").addEventListener("change", (e) => {
+  modal.querySelector("#sfSystemSelect").addEventListener("change", async (e) => {
     const sys = parseInt(e.target.value, 10);
     currentProfile.system = sys;
     currentProfile.deductionUnit = sys;
     modal.querySelector("#sfDeductionUnitSelect").value = sys.toString();
+    try {
+      currentProfile.gradeKey = await api.getDefaultGradeKey(sys);
+      modal.querySelector("#gradeKeyInput").value = currentProfile.gradeKey.map(b => `${b.minPercentage};${b.gradeValue}`).join("\n");
+    } catch (err) { showToast(err.message, "error"); }
+  });
+  modal.querySelector("#sfDeductionUnitSelect").addEventListener("change", e => {
+    currentProfile.deductionUnit = Number(e.target.value);
   });
 
   renderTiers();
@@ -534,6 +626,15 @@ function openEditSchulformModal(id) {
     if (!name) return;
 
     try {
+      const gradeLines = modal.querySelector("#gradeKeyInput").value.trim().split(/\r?\n/);
+      currentProfile.gradeKey = gradeLines.map(line => {
+        const parts = line.split(";");
+        const minPercentage = parseGermanNumber(parts[0]);
+        const gradeValue = Number(parts[1]);
+        if (parts.length !== 2 || !parts[1].trim() || minPercentage === null || !Number.isInteger(gradeValue))
+          throw new Error("Bitte jede Notenstufe als Mindestprozent;Note eingeben.");
+        return { minPercentage, gradeValue, label: String(gradeValue) };
+      });
       const payload = {
         id: sf ? sf.id : undefined,
         name,
@@ -572,13 +673,18 @@ async function loadKlassen() {
 
     for (const cls of classes) {
       const students = await api.getStudents(cls.Id || cls.id);
-      const card = document.createElement("div");
-      card.className = "card";
+      const card = document.createElement("details");
+      card.className = "card class-card";
+      card.open = !collapsedClasses.has(cls.id);
+      card.addEventListener("toggle", () => {
+        if (card.open) collapsedClasses.delete(cls.id);
+        else collapsedClasses.add(cls.id);
+      });
 
       let studentsHtml = students.map((s, idx) => `
         <tr>
           <td style="width: 40px; color: var(--gray-500);">${idx + 1}</td>
-          <td style="font-weight: 600;">${escapeHtml(s.lastName || s.LastName)}, ${escapeHtml(s.firstName || s.FirstName)}</td>
+          <td style="font-weight: 600;">${escapeHtml(s.fullName || s.FullName)}</td>
           <td style="text-align: right;">
             <button class="btn btn-secondary btn-sm delete-student-btn" data-class="${cls.id}" data-id="${s.id}" style="color: var(--danger);">&times;</button>
           </td>
@@ -586,16 +692,18 @@ async function loadKlassen() {
       `).join("");
 
       card.innerHTML = `
-        <div class="card-header">
+        <summary>
+          <span class="class-chevron" aria-hidden="true">›</span>
           <div>
             <h2 class="card-title">${escapeHtml(cls.name)}</h2>
             <p class="card-subtitle">Schulform: ${escapeHtml(cls.schulformName)} | ${students.length} Schüler</p>
           </div>
-          <div style="display: flex; gap: 0.5rem;">
+        </summary>
+        <div class="class-body">
+          <div class="class-actions">
             <button class="btn btn-primary btn-sm add-student-btn" data-class="${cls.id}">+ Schüler hinzufügen</button>
             <button class="btn btn-secondary btn-sm delete-class-btn" data-class="${cls.id}" style="color: var(--danger);">Klasse löschen</button>
           </div>
-        </div>
 
         <div class="table-responsive">
           <table class="data-table" style="font-size: 0.9rem;">
@@ -610,6 +718,7 @@ async function loadKlassen() {
               ${studentsHtml || '<tr><td colspan="3" style="text-align: center; color: var(--gray-500);">Keine Schüler vorhanden.</td></tr>'}
             </tbody>
           </table>
+        </div>
         </div>
       `;
 
@@ -695,37 +804,48 @@ function openAddStudentModal(classId) {
   modal.innerHTML = `
     <div class="modal-content">
       <h2 class="modal-title">Schüler hinzufügen</h2>
+      <p class="card-subtitle" style="margin-bottom: 1rem;">Nach dem Hinzufügen können Sie direkt den nächsten Namen eingeben.</p>
       <form id="addStudentModalForm">
         <div class="form-group">
-          <label class="form-label">Nachname</label>
-          <input type="text" id="studentLastName" class="form-control" placeholder="Mustermann" required>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Vorname</label>
+          <label class="form-label" for="studentFirstName">Vorname</label>
           <input type="text" id="studentFirstName" class="form-control" placeholder="Max" required>
         </div>
+        <div class="form-group">
+          <label class="form-label" for="studentLastName">Nachname (optional)</label>
+          <input type="text" id="studentLastName" class="form-control" placeholder="Mustermann">
+        </div>
         <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
-          <button type="button" class="btn btn-secondary" id="closeStudentModalBtn">Abbrechen</button>
-          <button type="submit" class="btn btn-primary">Hinzufügen</button>
+          <button type="button" class="btn btn-secondary" id="closeStudentModalBtn">Fertig</button>
+          <button type="submit" class="btn btn-primary">Hinzufügen & nächsten eingeben</button>
         </div>
       </form>
     </div>
   `;
   document.getElementById("modalContainer").appendChild(modal);
+  modal.querySelector("#studentFirstName").focus();
 
-  modal.querySelector("#closeStudentModalBtn").addEventListener("click", () => modal.remove());
+  modal.querySelector("#closeStudentModalBtn").addEventListener("click", () => { modal.remove(); loadKlassen(); });
   modal.querySelector("#addStudentModalForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const lastName = modal.querySelector("#studentLastName").value.trim();
     const firstName = modal.querySelector("#studentFirstName").value.trim();
+    if (!firstName) { showToast("Bitte einen Vornamen eingeben.", "error"); return; }
+    const submitButton = modal.querySelector('button[type="submit"]');
+    const closeButton = modal.querySelector("#closeStudentModalBtn");
+    submitButton.disabled = true;
+    closeButton.disabled = true;
 
     try {
       await api.saveStudent(classId, { lastName, firstName });
       showToast("Schüler hinzugefügt.", "success");
-      modal.remove();
-      loadKlassen();
+      modal.querySelector("#studentFirstName").value = "";
+      modal.querySelector("#studentLastName").value = "";
+      modal.querySelector("#studentFirstName").focus();
     } catch (err) {
       showToast(err.message, "error");
+    } finally {
+      submitButton.disabled = false;
+      closeButton.disabled = false;
     }
   });
 }
@@ -819,9 +939,9 @@ document.getElementById("createExamForm").addEventListener("submit", async (e) =
 // ==========================================
 // Eingabetabelle (Score Matrix)
 // ==========================================
-async function openExamMatrix(examId) {
+async function openExamMatrix(examId, fromHistory = false) {
   state.currentExamId = examId;
-  switchView("eingabetabelle");
+  switchView("eingabetabelle", fromHistory ? "none" : "push");
 
   try {
     const exam = await api.getExam(examId);
@@ -859,7 +979,7 @@ function renderMatrixTable(exam, entries) {
   tableHtml += `
           <th class="calc-cell">Gesamt<br><span style="font-weight: 500; font-size: 0.8rem;">${formatNumber(totalMax, 1)}P</span></th>
           <th class="calc-cell">%</th>
-          <th class="calc-cell">Ausg.</th>
+          <th class="calc-cell">Ausgangsnote</th>
           <th>Wörter</th>
           <th>Fehler</th>
           <th class="calc-cell">FQ</th>
@@ -907,10 +1027,8 @@ function renderMatrixTable(exam, entries) {
         <td class="final-grade-cell row-final-grade">-</td>
         <td>
           <select class="matrix-select row-status-select">
-            <option value="1" ${entry.status === 1 ? 'selected' : ''}>Bewertet</option>
-            <option value="2" ${entry.status === 2 ? 'selected' : ''}>Krank / Fehlend</option>
-            <option value="3" ${entry.status === 3 ? 'selected' : ''}>Nicht teilgenommen</option>
-            <option value="4" ${entry.status === 4 ? 'selected' : ''}>Unvollständig</option>
+            <option value="1" ${entry.status === 1 || entry.status === 4 ? 'selected' : ''}>Teilgenommen</option>
+            <option value="3" ${entry.status === 2 || entry.status === 3 ? 'selected' : ''}>Nicht teilgenommen</option>
           </select>
         </td>
       </tr>
@@ -928,7 +1046,12 @@ function renderMatrixTable(exam, entries) {
 
     tr.querySelectorAll(".matrix-input, .row-status-select").forEach(input => {
       input.addEventListener("input", () => {
-        collectRowData(tr, exam, entries[rowIdx]);
+        if (!collectRowData(tr, exam, entries[rowIdx])) {
+          state.saveRevision = (state.saveRevision || 0) + 1;
+          state.saveFailed = true;
+          document.getElementById("saveBadge").textContent = "Eingabe prüfen";
+          return;
+        }
         recalculateRow(tr, exam, entries[rowIdx]);
         triggerAutoSave();
       });
@@ -946,75 +1069,52 @@ function renderMatrixTable(exam, entries) {
 }
 
 function collectRowData(tr, exam, entry) {
-  entry.taskPoints = entry.taskPoints || {};
+  const taskPoints = {};
+  let valid = true;
   tr.querySelectorAll(".task-pts-cell").forEach(inp => {
     const taskNum = parseInt(inp.dataset.task, 10);
     const maxPts = parseFloat(inp.dataset.max);
     const val = parseGermanNumber(inp.value);
-    entry.taskPoints[taskNum] = val !== null ? Math.min(val, maxPts) : null;
+    const invalid = inp.value.trim() !== "" && (val === null || val < 0 || val > maxPts);
+    inp.setCustomValidity(invalid ? `Punkte müssen zwischen 0 und ${maxPts} liegen.` : "");
+    inp.setAttribute("aria-invalid", String(invalid));
+    valid = valid && !invalid;
+    taskPoints[taskNum] = val;
   });
 
-  const wordsVal = tr.querySelector(".row-words-cell").value;
-  entry.wordCount = wordsVal !== "" ? parseInt(wordsVal, 10) : null;
-
-  const errorsVal = tr.querySelector(".row-errors-cell").value;
-  entry.errorCount = errorsVal !== "" ? parseInt(errorsVal, 10) : null;
-
+  const wordsInput = tr.querySelector(".row-words-cell");
+  const errorsInput = tr.querySelector(".row-errors-cell");
+  for (const inp of [wordsInput, errorsInput]) {
+    const invalid = inp.value !== "" && (!Number.isInteger(Number(inp.value)) || Number(inp.value) < 0);
+    inp.setCustomValidity(invalid ? "Bitte eine nichtnegative ganze Zahl eingeben." : "");
+    inp.setAttribute("aria-invalid", String(invalid));
+    valid = valid && !invalid;
+  }
+  if (!valid) return false;
+  entry.taskPoints = taskPoints;
+  entry.wordCount = wordsInput.value !== "" ? Number(wordsInput.value) : null;
+  entry.errorCount = errorsInput.value !== "" ? Number(errorsInput.value) : null;
   entry.status = parseInt(tr.querySelector(".row-status-select").value, 10);
+  return true;
 }
 
-function recalculateRow(tr, exam, entry) {
-  const profile = exam.gradingProfileSnapshot;
-  const totalMax = exam.totalMaxPoints;
-
-  let rawPoints = 0;
-  exam.tasks.forEach(t => {
-    const p = entry.taskPoints?.[t.taskNumber];
-    if (p !== null && p !== undefined) rawPoints += p;
-  });
-
-  const pct = totalMax > 0 ? (rawPoints / totalMax) * 100 : 0;
-  tr.querySelector(".row-total-pts").textContent = formatNumber(rawPoints, 1);
-  tr.querySelector(".row-pct").textContent = `${formatNumber(pct, 1)}%`;
-
-  // Initial grade
-  let initGrade = profile.system === 1 ? 6 : 0;
-  const sortedBoundaries = [...profile.gradeKey].sort((a, b) => b.minPercentage - a.minPercentage);
-  for (const b of sortedBoundaries) {
-    if (pct >= b.minPercentage) {
-      initGrade = b.gradeValue;
-      break;
-    }
-  }
-  tr.querySelector(".row-init-grade").textContent = initGrade;
-
-  // FQ & Deduction
-  let fq = null;
-  let deduction = 0;
-  if (entry.wordCount && entry.wordCount > 0 && entry.errorCount !== null && entry.errorCount >= 0) {
-    fq = (entry.errorCount * 100) / entry.wordCount;
-    const sortedTiers = [...profile.deductionTiers].sort((a, b) => a.threshold - b.threshold);
-    for (const t of sortedTiers) {
-      if (fq >= t.threshold) deduction = t.deduction;
-    }
-  }
-
-  tr.querySelector(".row-fq").textContent = fq !== null ? formatNumber(fq, 2) : "-";
-  tr.querySelector(".row-deduction").textContent = deduction > 0 ? `-${formatNumber(deduction, 1)}` : "0";
-
-  // Final grade
-  let finalGrade;
-  if (profile.system === 1) {
-    finalGrade = Math.min(6, Math.round(initGrade + deduction));
-  } else {
-    finalGrade = Math.max(0, Math.round(initGrade - deduction));
-  }
-
-  if (entry.status !== 1) {
-    // Missing, NotParticipated, Incomplete
-    tr.querySelector(".row-final-grade").textContent = "-";
-  } else {
-    tr.querySelector(".row-final-grade").textContent = finalGrade;
+async function recalculateRow(tr, exam, entry) {
+  const revision = (Number(tr.dataset.revision) || 0) + 1;
+  tr.dataset.revision = revision;
+  try {
+    // The same calculator is used by the summary and exports.
+    const result = await api.previewExamEntry(exam.id, entry);
+    if (Number(tr.dataset.revision) !== revision || !tr.isConnected) return;
+    tr.querySelector(".row-total-pts").textContent = result.adjustedPoints == null ? formatNumber(result.rawPoints, 1) :
+      `${formatNumber(result.rawPoints, 1)} → ${formatNumber(result.adjustedPoints, 2)}`;
+    tr.querySelector(".row-pct").textContent = result.percentage == null ? "-" : `${formatNumber(result.percentage, 1)}%`;
+    tr.querySelector(".row-init-grade").textContent = result.initialGrade ?? "-";
+    tr.querySelector(".row-fq").textContent = formatNumber(result.errorQuotient, 2);
+    tr.querySelector(".row-deduction").textContent = result.finalGrade == null ? "-" : result.deductionPoints == null ?
+      formatNumber(result.deduction, 1) : `${formatNumber(result.deduction, 1)}% (${formatNumber(result.deductionPoints, 2)} P)`;
+    tr.querySelector(".row-final-grade").textContent = result.finalGrade ?? "-";
+  } catch (err) {
+    if (Number(tr.dataset.revision) === revision) tr.querySelector(".row-final-grade").textContent = "-";
   }
 }
 
@@ -1036,19 +1136,47 @@ function triggerAutoSave() {
   badge.className = "save-badge saving";
   badge.innerHTML = `<span style="width: 8px; height: 8px; border-radius: 50%; background-color: currentColor;"></span> Speichert...`;
 
+  if (state.saveAction && state.pendingExamId !== state.currentExamId) state.saveAction();
   clearTimeout(state.saveTimeout);
-  state.saveTimeout = setTimeout(async () => {
-    try {
-      await api.saveExamEntries(state.currentExamId, state.activeExamEntries);
+  const examId = state.currentExamId;
+  const entries = structuredClone(state.activeExamEntries);
+  const revision = state.saveRevision = (state.saveRevision || 0) + 1;
+  state.pendingExamId = examId;
+  const save = () => {
+    if (state.saveAction === save) state.saveAction = null;
+    clearTimeout(state.saveTimeout);
+    state.isSaving = true;
+    state.pendingSave = (state.pendingSave || Promise.resolve()).catch(() => {}).then(() => api.saveExamEntries(examId, entries));
+    state.pendingSave.then(() => {
+      if (revision !== state.saveRevision) return;
+      state.isSaving = false;
+      state.saveFailed = false;
+      if (examId !== state.currentExamId || state.saveAction) return;
       badge.className = "save-badge saved";
       badge.innerHTML = `<span style="width: 8px; height: 8px; border-radius: 50%; background-color: currentColor;"></span> Gespeichert`;
-    } catch (err) {
+    }).catch(err => {
+      if (revision === state.saveRevision) state.isSaving = false;
+      state.saveFailed = true;
       badge.className = "save-badge saving";
       badge.innerHTML = `Fehler beim Speichern`;
       showToast(err.message, "error");
-    }
-  }, 500);
+    });
+    return state.pendingSave;
+  };
+  state.saveAction = save;
+  state.saveTimeout = setTimeout(save, 500);
 }
+
+async function flushPendingSave() {
+  if (document.querySelector('#scoreMatrix [aria-invalid="true"]'))
+    throw new Error("Bitte ungültige Eingaben korrigieren.");
+  if (state.saveAction) state.saveAction();
+  if (state.pendingSave) await state.pendingSave;
+}
+
+window.addEventListener("beforeunload", e => {
+  if (state.saveAction || state.isSaving || state.saveFailed || document.querySelector('#scoreMatrix [aria-invalid="true"]')) { e.preventDefault(); e.returnValue = ""; }
+});
 
 document.getElementById("matrixBackBtn").addEventListener("click", () => switchView("dashboard"));
 document.getElementById("matrixToAuswertungBtn").addEventListener("click", () => openExamAuswertung(state.currentExamId));
@@ -1056,9 +1184,11 @@ document.getElementById("matrixToAuswertungBtn").addEventListener("click", () =>
 // ==========================================
 // Auswertung & Notenspiegel
 // ==========================================
-async function openExamAuswertung(examId) {
+async function openExamAuswertung(examId, fromHistory = false) {
+  try { await flushPendingSave(); }
+  catch { showToast("Die Eingaben konnten nicht gespeichert werden.", "error"); if (fromHistory) switchView(state.currentView, "push"); return; }
   state.currentExamId = examId;
-  switchView("auswertung");
+  switchView("auswertung", fromHistory ? "none" : "push");
 
   try {
     const [exam, summary] = await Promise.all([
@@ -1088,7 +1218,7 @@ async function openExamAuswertung(examId) {
     rulesEl.innerHTML = `
       <ul style="padding-left: 1.25rem;">
         <li>Notensystem: <strong>${sfProf.system === 1 ? 'Schulnoten (1-6)' : 'Notenpunkte (0-15)'}</strong></li>
-        <li>Abzugseinheit: <strong>${sfProf.deductionUnit === 1 ? 'Schulnoten' : 'Notenpunkte'}</strong></li>
+        <li>Abzugseinheit: <strong>${sfProf.deductionUnit === 1 ? 'Schulnoten' : sfProf.deductionUnit === 2 ? 'Notenpunkte' : '% der Gesamtpunkte'}</strong></li>
         <li>Abzugsstufen: ${sfProf.deductionTiers.map(t => `ab FQ ${formatNumber(t.threshold, 1)}: -${formatNumber(t.deduction, 1)}`).join(", ") || "Keine"}</li>
       </ul>
     `;
@@ -1292,6 +1422,7 @@ document.getElementById("openDownloadBackupModalBtn").addEventListener("click", 
 });
 
 function openRestoreBackupModal(fileName) {
+  if (!confirm("Die aktuellen Daten werden durch die Sicherung ersetzt. Fortfahren?")) return;
   openPromptModal(`Sicherung wiederherstellen: ${fileName}`, "Geben Sie den Wiederherstellungsschlüssel für diese Sicherung ein:", async (key) => {
     try {
       await api.restoreBackup(fileName, key);
@@ -1302,6 +1433,24 @@ function openRestoreBackupModal(fileName) {
     }
   });
 }
+
+document.getElementById("restoreFileBtn").addEventListener("click", () => document.getElementById("restoreFileInput").click());
+document.getElementById("restoreFileInput").addEventListener("change", async e => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file || !confirm("Die aktuellen Daten werden durch die Sicherung ersetzt. Fortfahren?")) return;
+  if (file.size > 18_000_000) { showToast("Die Sicherungsdatei ist zu groß.", "error"); return; }
+  const reader = new FileReader();
+  reader.onerror = () => showToast("Die Sicherungsdatei konnte nicht gelesen werden.", "error");
+  reader.onload = () => openPromptModal("Sicherung wiederherstellen", "Wiederherstellungsschlüssel dieser Sicherung:", async key => {
+    try {
+      await api.restoreBackupFile(String(reader.result).split(",", 2)[1], key);
+      showToast("Sicherung erfolgreich wiederhergestellt.", "success");
+      switchView("dashboard");
+    } catch (err) { showToast(err.message, "error"); }
+  });
+  reader.readAsDataURL(file);
+});
 
 // Danger Zone Actions
 document.getElementById("dangerClearDataBtn").addEventListener("click", () => {

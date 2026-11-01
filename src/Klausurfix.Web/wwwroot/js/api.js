@@ -67,6 +67,9 @@ export const api = {
   lock() {
     return this.request("/api/auth/lock", { method: "POST" });
   },
+  shutdown() {
+    return this.request("/api/application/shutdown", { method: "POST" });
+  },
   changePin(oldPin, newPin) {
     return this.request("/api/auth/change-pin", {
       method: "POST",
@@ -160,6 +163,14 @@ export const api = {
       body: JSON.stringify(entries)
     });
   },
+  previewExamEntry(id, entry) {
+    return this.request(`/api/klausuren/${id}/preview-entry`, {
+      method: "POST", body: JSON.stringify(entry)
+    });
+  },
+  getDefaultGradeKey(system) {
+    return this.request(`/api/grading/defaults/${system}`);
+  },
   recalculateExam(id, newProfile = null) {
     return this.request(`/api/klausuren/${id}/recalculate`, {
       method: "POST",
@@ -190,6 +201,11 @@ export const api = {
     return this.request(`/api/backups/${encodeURIComponent(fileName)}/restore`, {
       method: "POST",
       body: JSON.stringify({ recoveryKey })
+    });
+  },
+  restoreBackupFile(dataBase64, recoveryKey) {
+    return this.request("/api/backups/restore-file", {
+      method: "POST", body: JSON.stringify({ dataBase64, recoveryKey })
     });
   },
   deleteBackup(fileName) {

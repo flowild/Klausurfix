@@ -27,7 +27,7 @@ public class PdfExportService
             {
                 page.Size(PageSizes.A4.Landscape());
                 page.Margin(1.5f, Unit.Centimetre);
-                page.DefaultTextStyle(x => x.FontSize(9));
+                page.DefaultTextStyle(x => x.FontSize(9).FontColor("#243D3D"));
 
                 // Header
                 page.Header().Column(col =>
@@ -36,8 +36,10 @@ public class PdfExportService
                     {
                         row.RelativeItem().Column(titleCol =>
                         {
-                            titleCol.Item().Text($"Klausurauswertung: {exam.Title}")
-                                .FontSize(16).Bold().FontColor(Colors.Blue.Darken3);
+                            titleCol.Item().Text("KLAUSURFIX  /  AUSWERTUNG")
+                                .FontSize(8).SemiBold().FontColor("#3C7773");
+                            titleCol.Item().PaddingTop(3).Text(exam.Title)
+                                .FontSize(19).Bold().FontColor("#124E4C");
                             titleCol.Item().Text($"Klasse: {exam.ClassName}  |  Schulform: {exam.SchulformName}  |  Datum: {exam.Date:dd.MM.yyyy}")
                                 .FontSize(10).FontColor(Colors.Grey.Darken2);
                         });
@@ -45,13 +47,13 @@ public class PdfExportService
                         row.ConstantItem(180).AlignRight().Column(statCol =>
                         {
                             statCol.Item().Text($"Durchschnitt: {(summary.ClassAverage.HasValue ? summary.ClassAverage.Value.ToString("0.00", deCulture) : "-")} {summary.Unit}")
-                                .FontSize(11).Bold().FontColor(Colors.Blue.Darken2);
+                                .FontSize(11).Bold().FontColor("#126763");
                             statCol.Item().Text($"Gewertet: {summary.GradedCount} von {summary.TotalStudents} Schülern")
                                 .FontSize(9).FontColor(Colors.Grey.Darken2);
                         });
                     });
 
-                    col.Item().PaddingTop(5).LineHorizontal(1).LineColor(Colors.Grey.Lighten1);
+                    col.Item().PaddingTop(8).LineHorizontal(1).LineColor("#B9D0CD");
                 });
 
                 // Content
@@ -71,7 +73,7 @@ public class PdfExportService
                             }
                             columns.RelativeColumn(1.3f); // Gesamt
                             columns.RelativeColumn(1.2f); // %
-                            columns.RelativeColumn(1.2f); // Note (vor Abzug)
+                            columns.RelativeColumn(1.8f); // Ausgangsnote
                             columns.RelativeColumn(1.1f); // W / F
                             columns.RelativeColumn(1.1f); // FQ
                             columns.RelativeColumn(1.1f); // Abzug
@@ -92,11 +94,11 @@ public class PdfExportService
                             header.Cell().Background(Colors.Grey.Lighten3).Padding(4).AlignCenter()
                                 .Text($"Gesamt\n({exam.TotalMaxPoints.ToString("G", deCulture)}P)").Bold().FontSize(8);
                             header.Cell().Background(Colors.Grey.Lighten3).Padding(4).AlignCenter().Text("%").Bold();
-                            header.Cell().Background(Colors.Grey.Lighten3).Padding(4).AlignCenter().Text("Ausg.").Bold();
+                            header.Cell().Background(Colors.Grey.Lighten3).Padding(4).AlignCenter().Text("Ausgangsnote").Bold();
                             header.Cell().Background(Colors.Grey.Lighten3).Padding(4).AlignCenter().Text("W / F").Bold();
                             header.Cell().Background(Colors.Grey.Lighten3).Padding(4).AlignCenter().Text("FQ").Bold();
                             header.Cell().Background(Colors.Grey.Lighten3).Padding(4).AlignCenter().Text("Abzug").Bold();
-                            header.Cell().Background(Colors.Blue.Lighten4).Padding(4).AlignCenter().Text("Endnote").Bold();
+                            header.Cell().Background("#C8E6E1").Padding(4).AlignCenter().Text("Endnote").Bold();
                             header.Cell().Background(Colors.Grey.Lighten3).Padding(4).Text("Status").Bold();
                         });
 
@@ -104,7 +106,7 @@ public class PdfExportService
                         int rowIdx = 1;
                         foreach (var res in summary.Results)
                         {
-                            var bg = rowIdx % 2 == 0 ? Colors.Grey.Lighten5 : Colors.White;
+                            var bg = rowIdx % 2 == 0 ? "#F3F8F7" : "#FFFFFF";
                             var entry = exam.StudentEntries.FirstOrDefault(e => e.StudentId == res.StudentId);
 
                             table.Cell().Background(bg).Padding(4).Text(rowIdx.ToString());
@@ -136,8 +138,10 @@ public class PdfExportService
                             table.Cell().Background(bg).Padding(4).AlignCenter()
                                 .Text(res.ErrorQuotient.HasValue ? res.ErrorQuotient.Value.ToString("0.00", deCulture) : "-");
                             table.Cell().Background(bg).Padding(4).AlignCenter()
-                                .Text(res.Deduction > 0 ? $"-{res.Deduction.ToString("G", deCulture)}" : "0");
-                            table.Cell().Background(Colors.Blue.Lighten5).Padding(4).AlignCenter()
+                                .Text(res.DeductionPoints.HasValue
+                                    ? $"{res.Deduction.ToString("G", deCulture)}% ({res.DeductionPoints.Value.ToString("G", deCulture)}P); verbleiben {res.AdjustedPoints!.Value.ToString("G", deCulture)}P"
+                                    : res.Deduction > 0 ? $"-{res.Deduction.ToString("G", deCulture)}" : "0");
+                            table.Cell().Background("#E2F2EF").Padding(4).AlignCenter()
                                 .Text(res.FinalGrade.HasValue ? res.FinalGrade.Value.ToString() : "-").Bold();
                             table.Cell().Background(bg).Padding(4).Text(res.StatusDescription);
 
@@ -146,45 +150,34 @@ public class PdfExportService
                     });
 
                     // Summary & Notenspiegel section
-                    col.Item().PaddingTop(15).Row(summaryRow =>
+                    col.Item().PaddingTop(18).Column(summaryCol =>
                     {
-                        // Left: Notenspiegel Table
-                        summaryRow.RelativeItem(1).Column(nspCol =>
+                        summaryCol.Item().Text("Notenspiegel").Bold().FontSize(13).FontColor("#124E4C");
+                        summaryCol.Item().PaddingTop(2).Text($"Häufigkeitsverteilung · {summary.GradedCount} gewertet").FontSize(8).FontColor("#637D7A");
+                        summaryCol.Item().PaddingTop(7).Table(nspTable =>
                         {
-                            nspCol.Item().Text("Notenspiegel (Häufigkeitsverteilung)").Bold().FontSize(11);
-                            nspCol.Item().PaddingTop(4).Table(nspTable =>
+                            nspTable.ColumnsDefinition(cols =>
                             {
-                                nspTable.ColumnsDefinition(cols =>
-                                {
-                                    cols.RelativeColumn();
-                                    cols.RelativeColumn();
-                                });
-
-                                nspTable.Header(h =>
-                                {
-                                    h.Cell().Background(Colors.Grey.Lighten3).Padding(3).Text("Note / Punkte").Bold();
-                                    h.Cell().Background(Colors.Grey.Lighten3).Padding(3).AlignCenter().Text("Anzahl").Bold();
-                                });
-
-                                foreach (var kvp in summary.GradeDistribution)
-                                {
-                                    nspTable.Cell().Padding(3).Text(kvp.Key);
-                                    nspTable.Cell().Padding(3).AlignCenter().Text(kvp.Value.ToString()).Bold();
-                                }
+                                cols.ConstantColumn(80);
+                                foreach (var _ in summary.GradeDistribution) cols.RelativeColumn();
                             });
+                            nspTable.Cell().Background("#DCECE9").Padding(5).Text("Note / Punkte").SemiBold();
+                            foreach (var grade in summary.GradeDistribution.Keys)
+                                nspTable.Cell().Background("#DCECE9").Padding(5).AlignCenter().Text(grade).SemiBold();
+                            nspTable.Cell().Background("#F3F8F7").Padding(5).Text("Anzahl").SemiBold();
+                            foreach (var count in summary.GradeDistribution.Values)
+                                nspTable.Cell().Background("#F3F8F7").Padding(5).AlignCenter().Text(count.ToString()).Bold();
                         });
-
-                        // Right: Evaluation rules & notes
-                        summaryRow.RelativeItem(1.5f).PaddingLeft(20).Column(ruleCol =>
+                        summaryCol.Item().PaddingTop(14).BorderTop(1).BorderColor("#D5E5E2").PaddingTop(9).Column(ruleCol =>
                         {
-                            ruleCol.Item().Text("Angewandte Bewertungsregeln").Bold().FontSize(11);
+                            ruleCol.Item().Text("Angewandte Bewertungsregeln").Bold().FontSize(10).FontColor("#124E4C");
                             ruleCol.Item().PaddingTop(4).Text($"• Notensystem: {(exam.GradingProfileSnapshot.System == GradingSystem.Schulnoten ? "Schulnoten (1-6)" : "Notenpunkte (0-15)")}");
-                            ruleCol.Item().Text($"• Abzugseinheit: {exam.GradingProfileSnapshot.DeductionUnit}");
+                            ruleCol.Item().Text($"• Abzugseinheit: {ReportFormatting.DeductionUnit(exam.GradingProfileSnapshot.DeductionUnit)}");
                             ruleCol.Item().Text($"• Fehlerquotient-Formel: (Rechtschreibfehler × 100) / Wortanzahl");
                             ruleCol.Item().Text($"• Abzugsstufen:");
                             foreach (var tier in exam.GradingProfileSnapshot.DeductionTiers)
                             {
-                                ruleCol.Item().PaddingLeft(10).Text($"- ab FQ {tier.Threshold.ToString("G", deCulture)}: -{tier.Deduction.ToString("G", deCulture)} {exam.GradingProfileSnapshot.DeductionUnit}");
+                                ruleCol.Item().PaddingLeft(10).Text($"- ab FQ {tier.Threshold.ToString("G", deCulture)}: -{tier.Deduction.ToString("G", deCulture)} {ReportFormatting.DeductionUnit(exam.GradingProfileSnapshot.DeductionUnit)}");
                             }
                             ruleCol.Item().PaddingTop(5).Text($"• Ausgeschlossene Schüler (Krank / Nicht gewertet): {summary.ExcludedCount}");
                         });

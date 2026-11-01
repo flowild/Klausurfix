@@ -24,7 +24,9 @@ builder.Services.Configure<JsonOptions>(options =>
 });
 
 // Register Core & Infrastructure services
+builder.Services.AddSingleton<ILocalKeyProtector, UserKeyProtector>();
 builder.Services.AddSingleton<KeyManager>();
+builder.Services.AddSingleton<LocalSessions>();
 builder.Services.AddSingleton<DatabaseContext>();
 builder.Services.AddSingleton<BackupService>();
 builder.Services.AddSingleton<CleanupService>();
@@ -47,6 +49,23 @@ app.Use(async (context, next) =>
         return;
     }
 
+    var origin = context.Request.Headers.Origin.ToString();
+    if ((!string.IsNullOrEmpty(origin) &&
+        (!Uri.TryCreate(origin, UriKind.Absolute, out var originUri) ||
+         originUri.Scheme != context.Request.Scheme || originUri.Authority != context.Request.Host.Value)) ||
+        context.Request.Headers["Sec-Fetch-Site"] == "cross-site")
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        return;
+    }
+    if (context.Request.Path.StartsWithSegments("/api") &&
+        !HttpMethods.IsGet(context.Request.Method) &&
+        context.Request.Headers["X-Requested-With"] != "XMLHttpRequest")
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        return;
+    }
+
     // Cache-Control: no-store on all API routes to protect student data
     if (context.Request.Path.StartsWithSegments("/api"))
     {
@@ -61,13 +80,16 @@ app.Use(async (context, next) =>
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path;
-    if (path.StartsWithSegments("/api") &&
-        !path.StartsWithSegments("/api/setup") &&
-        !path.StartsWithSegments("/api/auth"))
+    bool isPublic = path == "/api/health" || path == "/api/setup/status" || path == "/api/setup/generate-recovery-key" ||
+        path == "/api/setup/init" || path == "/api/auth/unlock-pin" ||
+        path == "/api/auth/unlock-recovery" || path == "/api/auth/unlock-hello";
+    if (path.StartsWithSegments("/api") && !isPublic)
     {
         var keyManager = context.RequestServices.GetRequiredService<KeyManager>();
-        if (!keyManager.IsInitialized || !keyManager.IsUnlocked)
+        var sessions = context.RequestServices.GetRequiredService<LocalSessions>();
+        if (!keyManager.IsInitialized || !keyManager.IsUnlocked || !sessions.IsValid(context))
         {
+            if (!keyManager.IsUnlocked) sessions.RevokeAll(context);
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             await context.Response.WriteAsJsonAsync(new { error = "Anwendung ist gesperrt oder noch nicht eingerichtet." });
             return;
@@ -85,13 +107,28 @@ app.UseStaticFiles();
 
 #region Setup & Auth APIs
 
-app.MapGet("/api/setup/status", (KeyManager km) =>
+// Used by the local launcher to distinguish this instance from another service.
+app.MapGet("/api/health", () => Results.Text("Klausurfix/1", "text/plain"));
+
+app.MapPost("/api/application/shutdown", (HttpContext context, KeyManager km, LocalSessions sessions, IHostApplicationLifetime lifetime) =>
+{
+    km.Lock();
+    sessions.RevokeAll(context);
+    context.Response.OnCompleted(() =>
+    {
+        lifetime.StopApplication();
+        return Task.CompletedTask;
+    });
+    return Results.Ok(new { success = true });
+});
+
+app.MapGet("/api/setup/status", (HttpContext context, KeyManager km, LocalSessions sessions) =>
 {
     return Results.Ok(new
     {
         isInitialized = km.IsInitialized,
-        isUnlocked = km.IsUnlocked,
-        isHelloRegistered = km.IsHelloRegistered,
+        isUnlocked = km.IsUnlocked && sessions.IsValid(context),
+        isHelloRegistered = false,
         inactivityTimeoutMinutes = km.InactivityTimeoutMinutes
     });
 });
@@ -101,13 +138,13 @@ app.MapGet("/api/setup/generate-recovery-key", () =>
     return Results.Ok(new { recoveryKey = KeyManager.GenerateRecoveryKey() });
 });
 
-app.MapPost("/api/setup/init", (InitRequest req, KeyManager km, DatabaseContext db) =>
+app.MapPost("/api/setup/init", (InitRequest req, HttpContext context, KeyManager km, DatabaseContext db, LocalSessions sessions) =>
 {
     if (km.IsInitialized)
         return Results.BadRequest(new { error = "Die Anwendung ist bereits eingerichtet." });
 
-    if (string.IsNullOrWhiteSpace(req.Pin) || req.Pin.Length < 6)
-        return Results.BadRequest(new { error = "PIN muss mindestens 6 Stellen lang sein." });
+    if (string.IsNullOrWhiteSpace(req.Pin) || req.Pin.Length is < 6 or > 64 || req.Pin.Any(c => c is < '0' or > '9'))
+        return Results.BadRequest(new { error = "PIN muss aus 6 bis 64 Ziffern bestehen." });
 
     if (string.IsNullOrWhiteSpace(req.RecoveryKey))
         return Results.BadRequest(new { error = "Wiederherstellungsschlüssel ist erforderlich." });
@@ -118,22 +155,24 @@ app.MapPost("/api/setup/init", (InitRequest req, KeyManager km, DatabaseContext 
     // Create default Schulformen for a smooth first start
     var defaultSek1 = new Schulform
     {
-        Name = "Sekundarstufe I (Noten 1–6)",
-        Profile = GradingProfile.CreateDefaultSchulnoten()
+        Name = "Fachschule Sozialwesen",
+        Profile = GradingProfile.FachschuleSozialwesen()
     };
     db.SaveSchulform(defaultSek1);
 
     var defaultSek2 = new Schulform
     {
-        Name = "Gymnasiale Oberstufe (Punkte 0–15)",
-        Profile = GradingProfile.CreateDefaultNotenpunkte()
+        Name = "Berufliches Gymnasium",
+        Profile = GradingProfile.BeruflichesGymnasium()
     };
     db.SaveSchulform(defaultSek2);
+    db.EnsureRequestedSchoolProfiles();
 
+    sessions.Issue(context);
     return Results.Ok(new { success = true });
 });
 
-app.MapPost("/api/auth/unlock-pin", (PinUnlockRequest req, KeyManager km) =>
+app.MapPost("/api/auth/unlock-pin", (PinUnlockRequest req, HttpContext context, KeyManager km, DatabaseContext db, LocalSessions sessions) =>
 {
     if (!km.IsInitialized)
         return Results.BadRequest(new { error = "Anwendung noch nicht eingerichtet." });
@@ -144,10 +183,14 @@ app.MapPost("/api/auth/unlock-pin", (PinUnlockRequest req, KeyManager km) =>
         return Results.Json(new { success = false, message = msg, lockoutSeconds = lockoutSec }, statusCode: 400);
     }
 
+    sessions.RevokeAll(context);
+    try { db.InitializeDatabase(); db.MigrateLegacyPlaintext(); db.EnsureRequestedSchoolProfiles(); }
+    catch { km.Lock(); return Results.Problem("Die Datenmigration konnte nicht abgeschlossen werden.", statusCode: 500); }
+    sessions.Issue(context);
     return Results.Ok(new { success = true, message = msg });
 });
 
-app.MapPost("/api/auth/unlock-recovery", (RecoveryUnlockRequest req, KeyManager km) =>
+app.MapPost("/api/auth/unlock-recovery", (RecoveryUnlockRequest req, HttpContext context, KeyManager km, DatabaseContext db, LocalSessions sessions) =>
 {
     if (!km.IsInitialized)
         return Results.BadRequest(new { error = "Anwendung noch nicht eingerichtet." });
@@ -156,24 +199,21 @@ app.MapPost("/api/auth/unlock-recovery", (RecoveryUnlockRequest req, KeyManager 
     if (!success)
         return Results.BadRequest(new { success = false, message = msg });
 
+    sessions.RevokeAll(context);
+    try { db.InitializeDatabase(); db.MigrateLegacyPlaintext(); db.EnsureRequestedSchoolProfiles(); }
+    catch { km.Lock(); return Results.Problem("Die Datenmigration konnte nicht abgeschlossen werden.", statusCode: 500); }
+    sessions.Issue(context);
     return Results.Ok(new { success = true, message = msg });
 });
 
-app.MapPost("/api/auth/unlock-hello", (KeyManager km) =>
-{
-    if (!km.IsInitialized)
-        return Results.BadRequest(new { error = "Anwendung noch nicht eingerichtet." });
+// The old DPAPI-only shortcut did not authenticate Windows Hello. Fail closed.
+app.MapPost("/api/auth/unlock-hello", () => Results.Problem(
+    "Windows Hello ist derzeit nicht verfügbar. Bitte verwenden Sie die App-PIN.", statusCode: 501));
 
-    var (success, msg) = km.UnlockWithDpapiSession();
-    if (!success)
-        return Results.BadRequest(new { success = false, message = msg });
-
-    return Results.Ok(new { success = true, message = msg });
-});
-
-app.MapPost("/api/auth/lock", (KeyManager km) =>
+app.MapPost("/api/auth/lock", (HttpContext context, KeyManager km, LocalSessions sessions) =>
 {
     km.Lock();
+    sessions.RevokeAll(context);
     return Results.Ok(new { success = true });
 });
 
@@ -190,19 +230,8 @@ app.MapPost("/api/auth/change-pin", (ChangePinRequest req, KeyManager km) =>
     }
 });
 
-app.MapPost("/api/auth/hello/register", (KeyManager km) =>
-{
-    try
-    {
-        // Register Hello / DPAPI token for current Windows user
-        km.RegisterHello("windows-hello-local", "local-key");
-        return Results.Ok(new { success = true, message = "Windows Hello erfolgreich registriert." });
-    }
-    catch (Exception ex)
-    {
-        return Results.BadRequest(new { error = ex.Message });
-    }
-});
+app.MapPost("/api/auth/hello/register", () => Results.Problem(
+    "Windows Hello ist derzeit nicht verfügbar.", statusCode: 501));
 
 app.MapPost("/api/auth/hello/remove", (KeyManager km) =>
 {
@@ -335,6 +364,8 @@ app.MapGet("/api/klausuren/{id}", (DatabaseContext db, string id) =>
 
 app.MapPost("/api/klausuren", (CreateExamRequest req, DatabaseContext db) =>
 {
+    if (req.Tasks == null || req.Tasks.Count == 0 || req.Tasks.Any(t => t.MaxPoints <= 0))
+        return Results.BadRequest(new { error = "Mindestens eine Aufgabe mit positiver Höchstpunktzahl ist erforderlich." });
     var cls = db.GetClassById(req.ClassId);
     if (cls == null) return Results.BadRequest(new { error = "Klasse nicht gefunden." });
 
@@ -390,10 +421,33 @@ app.MapPost("/api/klausuren/{id}/entries", (string id, List<ExamStudentEntry> en
     var exam = db.GetExamById(id);
     if (exam == null) return Results.NotFound();
 
-    var updatedExam = exam with { StudentEntries = entries, UpdatedAt = DateTimeOffset.UtcNow };
+    if (entries.Count != exam.StudentEntries.Count || entries.Select(e => e.StudentId).Distinct().Count() != entries.Count ||
+        entries.Any(e => !exam.StudentEntries.Any(original => original.StudentId == e.StudentId)) ||
+        entries.Any(e => e.WordCount < 0 || e.ErrorCount < 0 || !Enum.IsDefined(e.Status) || e.TaskPoints == null ||
+            e.TaskPoints.Any(p => !exam.Tasks.Any(t => t.TaskNumber == p.Key &&
+                (!p.Value.HasValue || (p.Value.Value >= 0 && p.Value.Value <= t.MaxPoints))))))
+        return Results.BadRequest(new { error = "Ungültige Schülerliste oder ungültige Punkte-, Wort- oder Fehlerzahl." });
+
+    var updatedEntries = exam.StudentEntries.Select(original =>
+    {
+        var edited = entries.Single(e => e.StudentId == original.StudentId);
+        return original with { TaskPoints = edited.TaskPoints, WordCount = edited.WordCount,
+            ErrorCount = edited.ErrorCount, Status = edited.Status, Note = edited.Note };
+    }).ToList();
+    var updatedExam = exam with { StudentEntries = updatedEntries, UpdatedAt = DateTimeOffset.UtcNow };
     db.SaveExam(updatedExam);
     return Results.Ok(new { success = true, savedAt = updatedExam.UpdatedAt });
 });
+
+app.MapPost("/api/klausuren/{id}/preview-entry", (string id, ExamStudentEntry entry, DatabaseContext db) =>
+{
+    var exam = db.GetExamById(id);
+    return exam == null ? Results.NotFound() : Results.Ok(ExamCalculator.CalculateStudentEntry(entry, exam));
+});
+
+app.MapGet("/api/grading/defaults/{system:int}", (int system) =>
+    system == (int)GradingSystem.Schulnoten ? Results.Ok(GradingProfile.CreateDefaultSchulnoten().GradeKey) :
+    system == (int)GradingSystem.Notenpunkte ? Results.Ok(GradingProfile.CreateDefaultNotenpunkte().GradeKey) : Results.BadRequest());
 
 app.MapPost("/api/klausuren/{id}/recalculate", (string id, RecalculateRequest? req, DatabaseContext db) =>
 {
@@ -505,6 +559,18 @@ app.MapPost("/api/backups/{fileName}/restore", (string fileName, BackupRestoreRe
     }
 });
 
+app.MapPost("/api/backups/restore-file", (BackupFileRestoreRequest req, BackupService backupService) =>
+{
+    try
+    {
+        if (string.IsNullOrEmpty(req.DataBase64) || req.DataBase64.Length > 25_000_000)
+            return Results.BadRequest(new { error = "Die Sicherungsdatei ist leer oder zu groß." });
+        backupService.RestoreBackup(Convert.FromBase64String(req.DataBase64), req.RecoveryKey);
+        return Results.Ok(new { success = true });
+    }
+    catch (Exception ex) { return Results.BadRequest(new { error = ex.Message }); }
+});
+
 app.MapDelete("/api/backups/{fileName}", (string fileName, BackupService backupService) =>
 {
     backupService.DeleteManagedBackup(fileName);
@@ -555,6 +621,7 @@ public record ChangePinRequest(string OldPin, string NewPin);
 public record TimeoutRequest(int TimeoutMinutes);
 public record BackupCreateRequest(string RecoveryKey);
 public record BackupRestoreRequest(string RecoveryKey);
+public record BackupFileRestoreRequest(string RecoveryKey, string DataBase64);
 public record DangerActionRequest(string Pin);
 public record DeductionPreviewRequest(int? Words, int? Errors, List<DeductionTier> Tiers, decimal? MaxDeduction);
 public record GradePreviewRequest(decimal Percentage, List<GradeBoundary> GradeKey, GradingSystem System, decimal Deduction);

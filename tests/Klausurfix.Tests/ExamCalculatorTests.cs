@@ -6,6 +6,48 @@ using Xunit;
 
 public class ExamCalculatorTests
 {
+    [Theory]
+    [InlineData(299, 0)]
+    [InlineData(300, 1)]
+    [InlineData(599, 1)]
+    [InlineData(600, 2)]
+    public void BeruflichesGymnasium_DeductsGradePointsAtBoundaries(int errors, int expectedDeduction)
+    {
+        var exam = new Exam { Tasks = new() { new TaskDefinition(1, "A", 100m) },
+            GradingProfileSnapshot = GradingProfile.BeruflichesGymnasium() };
+        var entry = new ExamStudentEntry { TaskPoints = new() { [1] = 100m }, WordCount = 10000, ErrorCount = errors };
+        var result = ExamCalculator.CalculateStudentEntry(entry, exam);
+        Assert.Equal(expectedDeduction, result.Deduction);
+        Assert.Equal(15 - expectedDeduction, result.FinalGrade);
+    }
+
+    [Theory]
+    [InlineData(199, 0)]
+    [InlineData(200, 1)]
+    [InlineData(399, 1)]
+    [InlineData(400, 3)]
+    [InlineData(599, 3)]
+    [InlineData(600, 6)]
+    public void Fachschule_DeductsPercentageOfMaximumPointsAtBoundaries(int errors, int expectedDeduction)
+    {
+        var exam = new Exam { Tasks = new() { new TaskDefinition(1, "Aufgabe", 100m) },
+            GradingProfileSnapshot = GradingProfile.FachschuleSozialwesen() };
+        var entry = new ExamStudentEntry { TaskPoints = new() { [1] = 80m }, WordCount = 10000, ErrorCount = errors };
+        var result = ExamCalculator.CalculateStudentEntry(entry, exam);
+        Assert.Equal(expectedDeduction, result.DeductionPoints);
+        Assert.Equal(80m - expectedDeduction, result.AdjustedPoints);
+    }
+
+    [Fact]
+    public void BlankAndPartiallyEnteredRowsAreNeverIncluded()
+    {
+        var exam = new Exam { Tasks = new() { new TaskDefinition(1, "A", 10m) },
+            StudentEntries = new() { new ExamStudentEntry(), new ExamStudentEntry { TaskPoints = new() { [1] = 0m } } } };
+        var summary = ExamCalculator.CalculateExamSummary(exam);
+        Assert.Equal(0, summary.GradedCount);
+        Assert.Equal(2, summary.IncompleteCount);
+        Assert.Null(summary.ClassAverage);
+    }
     [Fact]
     public void CalculateErrorQuotient_ShouldReturnCorrectValue()
     {
@@ -181,14 +223,14 @@ public class ExamCalculatorTests
                     StudentId = "s1",
                     StudentName = "Sehr gut",
                     Status = StudentExamStatus.Graded,
-                    TaskPoints = new() { { 1, 50m } } // 100% -> Grade 1
+                    TaskPoints = new() { { 1, 50m } }, WordCount = 100, ErrorCount = 0 // 100% -> Grade 1
                 },
                 new ExamStudentEntry
                 {
                     StudentId = "s2",
                     StudentName = "Null Punkte abgegeben",
                     Status = StudentExamStatus.Graded,
-                    TaskPoints = new() { { 1, 0m } } // 0% -> Grade 6
+                    TaskPoints = new() { { 1, 0m } }, WordCount = 100, ErrorCount = 0 // 0% -> Grade 6
                 }
             }
         };

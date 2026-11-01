@@ -36,10 +36,20 @@ public record GradeBoundary
         // Validate values according to system
         foreach (var b in list)
         {
+            if (b.MinPercentage < 0 || b.MinPercentage > 100)
+                throw new InvalidOperationException("Prozentgrenzen müssen zwischen 0 und 100 liegen.");
             if (system == GradingSystem.Schulnoten && (b.GradeValue < 1 || b.GradeValue > 6))
                 throw new InvalidOperationException($"Schulnote {b.GradeValue} liegt außerhalb von 1 bis 6.");
             if (system == GradingSystem.Notenpunkte && (b.GradeValue < 0 || b.GradeValue > 15))
                 throw new InvalidOperationException($"Notenpunkt {b.GradeValue} liegt außerhalb von 0 bis 15.");
+        }
+        if (list.Select(b => b.MinPercentage).Distinct().Count() != list.Count)
+            throw new InvalidOperationException("Prozentgrenzen dürfen nicht mehrfach vorkommen.");
+        for (int i = 1; i < list.Count; i++)
+        {
+            if ((system == GradingSystem.Schulnoten && list[i].GradeValue < list[i - 1].GradeValue) ||
+                (system == GradingSystem.Notenpunkte && list[i].GradeValue > list[i - 1].GradeValue))
+                throw new InvalidOperationException("Der Notenschlüssel muss bei weniger Punkten gleich bleiben oder schlechter werden.");
         }
     }
 }

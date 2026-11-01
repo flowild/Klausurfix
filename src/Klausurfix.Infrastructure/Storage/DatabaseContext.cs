@@ -4,10 +4,18 @@ using System.Text.Json;
 using Klausurfix.Core.Models;
 using Klausurfix.Infrastructure.Security;
 using Microsoft.Data.Sqlite;
+using Klausurfix.Infrastructure.Backup;
 
 public class DatabaseContext
 {
     private readonly KeyManager _keyManager;
+    private const string ProtectedPrefix = "kf1:";
+    private static string Protect(string value, byte[] key) => ProtectedPrefix + CryptoService.EncryptString(value, key);
+    private static string Unprotect(string value, byte[] key) => value.StartsWith(ProtectedPrefix, StringComparison.Ordinal)
+        ? CryptoService.DecryptString(value[ProtectedPrefix.Length..], key) : value;
+    private record StoredEntry(Dictionary<int, decimal?> TaskPoints, int? WordCount, int? ErrorCount, StudentExamStatus Status);
+    private static string ProtectEntry(ExamStudentEntry entry, byte[] key) => CryptoService.EncryptString(
+        JsonSerializer.Serialize(new StoredEntry(entry.TaskPoints, entry.WordCount, entry.ErrorCount, entry.Status)), key);
 
     public DatabaseContext(KeyManager keyManager)
     {
@@ -101,6 +109,129 @@ public class DatabaseContext
         }
     }
 
+    // Replace a validated backup as one SQLite transaction. A failure at any
+    // point rolls back both the deletion and all inserted rows.
+    public void ReplaceFromBackup(BackupPayload payload, bool validateProfiles = true)
+    {
+        if (payload.Version != 1 || payload.Schulformen == null || payload.Classes == null ||
+            payload.Students == null || payload.Exams == null)
+            throw new InvalidOperationException("Ungültige Sicherungsdaten.");
+        if (validateProfiles) foreach (var sf in payload.Schulformen) sf.Profile.Validate();
+        var dek = _keyManager.GetActiveDek();
+        using var conn = CreateConnection();
+        using var transaction = conn.BeginTransaction();
+        void Execute(string sql, params (string Name, object? Value)[] args)
+        {
+            using var command = conn.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = sql;
+            foreach (var (name, value) in args) command.Parameters.AddWithValue(name, value ?? DBNull.Value);
+            command.ExecuteNonQuery();
+        }
+        try
+        {
+            Execute("DELETE FROM exam_entries; DELETE FROM exams; DELETE FROM students; DELETE FROM classes; DELETE FROM schulformen;");
+            foreach (var sf in payload.Schulformen)
+                Execute("INSERT INTO schulformen (id,name,profile_json_enc,is_archived,created_at) VALUES ($id,$name,$profile,$arch,$created)",
+                    ("$id", sf.Id), ("$name", Protect(sf.Name, dek)), ("$profile", CryptoService.EncryptString(JsonSerializer.Serialize(sf.Profile), dek)),
+                    ("$arch", sf.IsArchived ? 1 : 0), ("$created", Protect(sf.CreatedAt.ToString("O"), dek)));
+            foreach (var cls in payload.Classes)
+                Execute("INSERT INTO classes (id,name,schulform_id,schulform_name,is_archived,created_at) VALUES ($id,$name,$sf,$sfname,$arch,$created)",
+                    ("$id", cls.Id), ("$name", Protect(cls.Name, dek)), ("$sf", cls.SchulformId), ("$sfname", Protect(cls.SchulformName, dek)),
+                    ("$arch", cls.IsArchived ? 1 : 0), ("$created", Protect(cls.CreatedAt.ToString("O"), dek)));
+            foreach (var student in payload.Students)
+                Execute("INSERT INTO students (id,class_id,first_name_enc,last_name_enc,order_index,is_archived) VALUES ($id,$class,$first,$last,$ord,$arch)",
+                    ("$id", student.Id), ("$class", student.ClassId), ("$first", CryptoService.EncryptString(student.FirstName, dek)),
+                    ("$last", CryptoService.EncryptString(student.LastName, dek)), ("$ord", student.OrderIndex), ("$arch", student.IsArchived ? 1 : 0));
+            foreach (var exam in payload.Exams)
+            {
+                if (validateProfiles) exam.GradingProfileSnapshot.Validate();
+                Execute("INSERT INTO exams (id,class_id,class_name,schulform_id,schulform_name,title,date,tasks_json,profile_snapshot_json,created_at,updated_at) VALUES ($id,$class,$className,$sf,$sfName,$title,$date,$tasks,$profile,$created,$updated)",
+                    ("$id", exam.Id), ("$class", exam.ClassId), ("$className", Protect(exam.ClassName, dek)), ("$sf", exam.SchulformId),
+                    ("$sfName", Protect(exam.SchulformName, dek)), ("$title", Protect(exam.Title, dek)), ("$date", Protect(exam.Date.ToString("O"), dek)),
+                    ("$tasks", Protect(JsonSerializer.Serialize(exam.Tasks), dek)), ("$profile", Protect(JsonSerializer.Serialize(exam.GradingProfileSnapshot), dek)),
+                    ("$created", Protect(exam.CreatedAt.ToString("O"), dek)), ("$updated", Protect(exam.UpdatedAt.ToString("O"), dek)));
+                foreach (var entry in exam.StudentEntries)
+                    Execute("INSERT INTO exam_entries (exam_id,student_id,student_name_enc,status,task_points_enc,word_count,error_count,note_enc) VALUES ($exam,$student,$name,$status,$points,$words,$errors,$note)",
+                        ("$exam", exam.Id), ("$student", entry.StudentId), ("$name", CryptoService.EncryptString(entry.StudentName, dek)),
+                        ("$status", 0), ("$points", ProtectEntry(entry, dek)),
+                        ("$words", null), ("$errors", null),
+                        ("$note", string.IsNullOrEmpty(entry.Note) ? null : CryptoService.EncryptString(entry.Note, dek)));
+            }
+            transaction.Commit();
+        }
+        finally { CryptoService.ZeroMemory(dek); }
+    }
+
+    public void MigrateLegacyPlaintext()
+    {
+        bool needsMigration;
+        bool needsCleanup;
+        using (var conn = CreateConnection())
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = @"SELECT EXISTS(SELECT 1 FROM schulformen WHERE name NOT LIKE 'kf1:%' OR created_at NOT LIKE 'kf1:%')
+                OR EXISTS(SELECT 1 FROM classes WHERE name NOT LIKE 'kf1:%' OR schulform_name NOT LIKE 'kf1:%' OR created_at NOT LIKE 'kf1:%')
+                OR EXISTS(SELECT 1 FROM exams WHERE title NOT LIKE 'kf1:%' OR date NOT LIKE 'kf1:%'
+                    OR class_name NOT LIKE 'kf1:%' OR schulform_name NOT LIKE 'kf1:%'
+                    OR tasks_json NOT LIKE 'kf1:%' OR profile_snapshot_json NOT LIKE 'kf1:%'
+                    OR created_at NOT LIKE 'kf1:%' OR updated_at NOT LIKE 'kf1:%')
+                OR EXISTS(SELECT 1 FROM exam_entries WHERE status != 0 OR word_count IS NOT NULL OR error_count IS NOT NULL)";
+            needsMigration = Convert.ToInt32(cmd.ExecuteScalar()) != 0;
+            cmd.CommandText = "PRAGMA user_version";
+            needsCleanup = Convert.ToInt32(cmd.ExecuteScalar()) == 1;
+        }
+        if (!needsMigration && !needsCleanup) return;
+        if (needsMigration)
+        {
+            using (var marker = CreateConnection())
+            using (var mark = marker.CreateCommand()) { mark.CommandText = "PRAGMA user_version=1"; mark.ExecuteNonQuery(); }
+            var payload = new BackupPayload
+            {
+                Schulformen = GetSchulformen(true), Classes = GetClasses(true),
+                Exams = GetExams().Select(e => GetExamById(e.Id)!).ToList()
+            };
+            foreach (var cls in payload.Classes) payload.Students.AddRange(GetStudentsByClass(cls.Id, true));
+            ReplaceFromBackup(payload, validateProfiles: false);
+        }
+        // Delete recoverable plaintext from the database's free pages and WAL.
+        SqliteConnection.ClearAllPools();
+        using var cleanup = CreateConnection();
+        using var command = cleanup.CreateCommand();
+        void Checkpoint()
+        {
+            command.CommandText = "PRAGMA wal_checkpoint(TRUNCATE)";
+            using var reader = command.ExecuteReader();
+            if (!reader.Read() || reader.GetInt32(0) != 0)
+                throw new InvalidOperationException("Die Bereinigung alter Daten konnte noch nicht abgeschlossen werden.");
+        }
+        Checkpoint();
+        command.CommandText = "VACUUM";
+        command.ExecuteNonQuery();
+        Checkpoint();
+        command.CommandText = "PRAGMA user_version=2";
+        command.ExecuteNonQuery();
+    }
+
+    public void EnsureRequestedSchoolProfiles()
+    {
+        using (var conn = CreateConnection())
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "CREATE TABLE IF NOT EXISTS app_migrations (name TEXT PRIMARY KEY); SELECT COUNT(*) FROM app_migrations WHERE name='requested_school_profiles_v1'";
+            if (Convert.ToInt32(cmd.ExecuteScalar()) != 0) return;
+        }
+        var schools = GetSchulformen(true);
+        if (!schools.Any(s => s.Name.Equals("Berufliches Gymnasium", StringComparison.OrdinalIgnoreCase)))
+            SaveSchulform(new Schulform { Name = "Berufliches Gymnasium", Profile = GradingProfile.BeruflichesGymnasium() });
+        if (!schools.Any(s => s.Name.Equals("Fachschule Sozialwesen", StringComparison.OrdinalIgnoreCase)))
+            SaveSchulform(new Schulform { Name = "Fachschule Sozialwesen", Profile = GradingProfile.FachschuleSozialwesen() });
+        using var markConnection = CreateConnection();
+        using var marker = markConnection.CreateCommand();
+        marker.CommandText = "INSERT OR IGNORE INTO app_migrations(name) VALUES ('requested_school_profiles_v1')";
+        marker.ExecuteNonQuery();
+    }
+
     #region Schulformen
 
     public List<Schulform> GetSchulformen(bool includeArchived = false)
@@ -118,10 +249,10 @@ public class DatabaseContext
         while (reader.Read())
         {
             var id = reader.GetString(0);
-            var name = reader.GetString(1);
+            var name = Unprotect(reader.GetString(1), dek);
             var profEnc = reader.GetString(2);
             var isArchived = reader.GetInt32(3) == 1;
-            var createdAt = DateTimeOffset.Parse(reader.GetString(4));
+            var createdAt = DateTimeOffset.Parse(Unprotect(reader.GetString(4), dek));
 
             var profJson = CryptoService.DecryptString(profEnc, dek);
             var profile = JsonSerializer.Deserialize<GradingProfile>(profJson) ?? GradingProfile.CreateDefaultSchulnoten();
@@ -136,7 +267,7 @@ public class DatabaseContext
             });
         }
 
-        return list;
+        return list.OrderBy(s => s.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
 
     public Schulform? GetSchulformById(string id)
@@ -150,10 +281,10 @@ public class DatabaseContext
         using var reader = cmd.ExecuteReader();
         if (!reader.Read()) return null;
 
-        var name = reader.GetString(1);
+        var name = Unprotect(reader.GetString(1), dek);
         var profEnc = reader.GetString(2);
         var isArchived = reader.GetInt32(3) == 1;
-        var createdAt = DateTimeOffset.Parse(reader.GetString(4));
+        var createdAt = DateTimeOffset.Parse(Unprotect(reader.GetString(4), dek));
 
         var profJson = CryptoService.DecryptString(profEnc, dek);
         var profile = JsonSerializer.Deserialize<GradingProfile>(profJson) ?? GradingProfile.CreateDefaultSchulnoten();
@@ -186,10 +317,10 @@ ON CONFLICT(id) DO UPDATE SET
     is_archived = excluded.is_archived;";
 
         cmd.Parameters.AddWithValue("$id", schulform.Id);
-        cmd.Parameters.AddWithValue("$name", schulform.Name);
+        cmd.Parameters.AddWithValue("$name", Protect(schulform.Name, dek));
         cmd.Parameters.AddWithValue("$profEnc", profEnc);
         cmd.Parameters.AddWithValue("$isArchived", schulform.IsArchived ? 1 : 0);
-        cmd.Parameters.AddWithValue("$createdAt", schulform.CreatedAt.ToString("O"));
+        cmd.Parameters.AddWithValue("$createdAt", Protect(schulform.CreatedAt.ToString("O"), dek));
 
         cmd.ExecuteNonQuery();
     }
@@ -227,6 +358,7 @@ ON CONFLICT(id) DO UPDATE SET
 
     public List<ClassGroup> GetClasses(bool includeArchived = false)
     {
+        var dek = _keyManager.GetActiveDek();
         var list = new List<ClassGroup>();
         using var conn = CreateConnection();
         using var cmd = conn.CreateCommand();
@@ -240,19 +372,20 @@ ON CONFLICT(id) DO UPDATE SET
             list.Add(new ClassGroup
             {
                 Id = reader.GetString(0),
-                Name = reader.GetString(1),
+                Name = Unprotect(reader.GetString(1), dek),
                 SchulformId = reader.GetString(2),
-                SchulformName = reader.GetString(3),
+                SchulformName = Unprotect(reader.GetString(3), dek),
                 IsArchived = reader.GetInt32(4) == 1,
-                CreatedAt = DateTimeOffset.Parse(reader.GetString(5))
+                CreatedAt = DateTimeOffset.Parse(Unprotect(reader.GetString(5), dek))
             });
         }
 
-        return list;
+        return list.OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
 
     public ClassGroup? GetClassById(string id)
     {
+        var dek = _keyManager.GetActiveDek();
         using var conn = CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT id, name, schulform_id, schulform_name, is_archived, created_at FROM classes WHERE id = $id;";
@@ -264,16 +397,17 @@ ON CONFLICT(id) DO UPDATE SET
         return new ClassGroup
         {
             Id = reader.GetString(0),
-            Name = reader.GetString(1),
+            Name = Unprotect(reader.GetString(1), dek),
             SchulformId = reader.GetString(2),
-            SchulformName = reader.GetString(3),
+            SchulformName = Unprotect(reader.GetString(3), dek),
             IsArchived = reader.GetInt32(4) == 1,
-            CreatedAt = DateTimeOffset.Parse(reader.GetString(5))
+            CreatedAt = DateTimeOffset.Parse(Unprotect(reader.GetString(5), dek))
         };
     }
 
     public void SaveClass(ClassGroup classGroup)
     {
+        var dek = _keyManager.GetActiveDek();
         using var conn = CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
@@ -286,11 +420,11 @@ ON CONFLICT(id) DO UPDATE SET
     is_archived = excluded.is_archived;";
 
         cmd.Parameters.AddWithValue("$id", classGroup.Id);
-        cmd.Parameters.AddWithValue("$name", classGroup.Name);
+        cmd.Parameters.AddWithValue("$name", Protect(classGroup.Name, dek));
         cmd.Parameters.AddWithValue("$schulformId", classGroup.SchulformId);
-        cmd.Parameters.AddWithValue("$schulformName", classGroup.SchulformName);
+        cmd.Parameters.AddWithValue("$schulformName", Protect(classGroup.SchulformName, dek));
         cmd.Parameters.AddWithValue("$isArchived", classGroup.IsArchived ? 1 : 0);
-        cmd.Parameters.AddWithValue("$createdAt", classGroup.CreatedAt.ToString("O"));
+        cmd.Parameters.AddWithValue("$createdAt", Protect(classGroup.CreatedAt.ToString("O"), dek));
 
         cmd.ExecuteNonQuery();
     }
@@ -423,6 +557,7 @@ ON CONFLICT(id) DO UPDATE SET
 
     public List<Exam> GetExams()
     {
+        var dek = _keyManager.GetActiveDek();
         var list = new List<Exam>();
         using var conn = CreateConnection();
         using var cmd = conn.CreateCommand();
@@ -433,15 +568,15 @@ ON CONFLICT(id) DO UPDATE SET
         {
             var id = reader.GetString(0);
             var classId = reader.GetString(1);
-            var className = reader.GetString(2);
+            var className = Unprotect(reader.GetString(2), dek);
             var schulformId = reader.GetString(3);
-            var schulformName = reader.GetString(4);
-            var title = reader.GetString(5);
-            var date = DateOnly.Parse(reader.GetString(6));
-            var tasksJson = reader.GetString(7);
-            var profJson = reader.GetString(8);
-            var createdAt = DateTimeOffset.Parse(reader.GetString(9));
-            var updatedAt = DateTimeOffset.Parse(reader.GetString(10));
+            var schulformName = Unprotect(reader.GetString(4), dek);
+            var title = Unprotect(reader.GetString(5), dek);
+            var date = DateOnly.Parse(Unprotect(reader.GetString(6), dek));
+            var tasksJson = Unprotect(reader.GetString(7), dek);
+            var profJson = Unprotect(reader.GetString(8), dek);
+            var createdAt = DateTimeOffset.Parse(Unprotect(reader.GetString(9), dek));
+            var updatedAt = DateTimeOffset.Parse(Unprotect(reader.GetString(10), dek));
 
             var tasks = JsonSerializer.Deserialize<List<TaskDefinition>>(tasksJson) ?? new();
             var profile = JsonSerializer.Deserialize<GradingProfile>(profJson) ?? GradingProfile.CreateDefaultSchulnoten();
@@ -462,7 +597,7 @@ ON CONFLICT(id) DO UPDATE SET
             });
         }
 
-        return list;
+        return list.OrderByDescending(e => e.Date).ThenBy(e => e.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
 
     public Exam? GetExamById(string id)
@@ -477,15 +612,15 @@ ON CONFLICT(id) DO UPDATE SET
         if (!reader.Read()) return null;
 
         var classId = reader.GetString(1);
-        var className = reader.GetString(2);
+        var className = Unprotect(reader.GetString(2), dek);
         var schulformId = reader.GetString(3);
-        var schulformName = reader.GetString(4);
-        var title = reader.GetString(5);
-        var date = DateOnly.Parse(reader.GetString(6));
-        var tasksJson = reader.GetString(7);
-        var profJson = reader.GetString(8);
-        var createdAt = DateTimeOffset.Parse(reader.GetString(9));
-        var updatedAt = DateTimeOffset.Parse(reader.GetString(10));
+        var schulformName = Unprotect(reader.GetString(4), dek);
+        var title = Unprotect(reader.GetString(5), dek);
+        var date = DateOnly.Parse(Unprotect(reader.GetString(6), dek));
+        var tasksJson = Unprotect(reader.GetString(7), dek);
+        var profJson = Unprotect(reader.GetString(8), dek);
+        var createdAt = DateTimeOffset.Parse(Unprotect(reader.GetString(9), dek));
+        var updatedAt = DateTimeOffset.Parse(Unprotect(reader.GetString(10), dek));
 
         var tasks = JsonSerializer.Deserialize<List<TaskDefinition>>(tasksJson) ?? new();
         var profile = JsonSerializer.Deserialize<GradingProfile>(profJson) ?? GradingProfile.CreateDefaultSchulnoten();
@@ -511,7 +646,17 @@ ON CONFLICT(id) DO UPDATE SET
 
             var sName = CryptoService.DecryptString(nameEnc, dek);
             var ptsJson = CryptoService.DecryptString(ptsEnc, dek);
-            var pts = JsonSerializer.Deserialize<Dictionary<int, decimal?>>(ptsJson) ?? new();
+            using var pointsDoc = JsonDocument.Parse(ptsJson);
+            Dictionary<int, decimal?> pts;
+            if (pointsDoc.RootElement.TryGetProperty("TaskPoints", out _))
+            {
+                var stored = JsonSerializer.Deserialize<StoredEntry>(ptsJson) ?? throw new InvalidOperationException("Ungültiger Klausureintrag.");
+                pts = stored.TaskPoints;
+                words = stored.WordCount;
+                errors = stored.ErrorCount;
+                status = stored.Status;
+            }
+            else pts = JsonSerializer.Deserialize<Dictionary<int, decimal?>>(ptsJson) ?? new();
             var note = string.IsNullOrEmpty(noteEnc) ? null : CryptoService.DecryptString(noteEnc, dek);
 
             entries.Add(new ExamStudentEntry
@@ -546,8 +691,8 @@ ON CONFLICT(id) DO UPDATE SET
     public void SaveExam(Exam exam)
     {
         var dek = _keyManager.GetActiveDek();
-        var tasksJson = JsonSerializer.Serialize(exam.Tasks);
-        var profJson = JsonSerializer.Serialize(exam.GradingProfileSnapshot);
+        var tasksJson = Protect(JsonSerializer.Serialize(exam.Tasks), dek);
+        var profJson = Protect(JsonSerializer.Serialize(exam.GradingProfileSnapshot), dek);
 
         using var conn = CreateConnection();
         using var trans = conn.BeginTransaction();
@@ -568,15 +713,15 @@ ON CONFLICT(id) DO UPDATE SET
 
         cmd.Parameters.AddWithValue("$id", exam.Id);
         cmd.Parameters.AddWithValue("$classId", exam.ClassId);
-        cmd.Parameters.AddWithValue("$className", exam.ClassName);
+        cmd.Parameters.AddWithValue("$className", Protect(exam.ClassName, dek));
         cmd.Parameters.AddWithValue("$schulformId", exam.SchulformId);
-        cmd.Parameters.AddWithValue("$schulformName", exam.SchulformName);
-        cmd.Parameters.AddWithValue("$title", exam.Title);
-        cmd.Parameters.AddWithValue("$date", exam.Date.ToString("O"));
+        cmd.Parameters.AddWithValue("$schulformName", Protect(exam.SchulformName, dek));
+        cmd.Parameters.AddWithValue("$title", Protect(exam.Title, dek));
+        cmd.Parameters.AddWithValue("$date", Protect(exam.Date.ToString("O"), dek));
         cmd.Parameters.AddWithValue("$tasksJson", tasksJson);
         cmd.Parameters.AddWithValue("$profJson", profJson);
-        cmd.Parameters.AddWithValue("$createdAt", exam.CreatedAt.ToString("O"));
-        cmd.Parameters.AddWithValue("$updatedAt", DateTimeOffset.UtcNow.ToString("O"));
+        cmd.Parameters.AddWithValue("$createdAt", Protect(exam.CreatedAt.ToString("O"), dek));
+        cmd.Parameters.AddWithValue("$updatedAt", Protect(DateTimeOffset.UtcNow.ToString("O"), dek));
 
         cmd.ExecuteNonQuery();
 
@@ -584,8 +729,7 @@ ON CONFLICT(id) DO UPDATE SET
         foreach (var entry in exam.StudentEntries)
         {
             var nameEnc = CryptoService.EncryptString(entry.StudentName, dek);
-            var ptsJson = JsonSerializer.Serialize(entry.TaskPoints);
-            var ptsEnc = CryptoService.EncryptString(ptsJson, dek);
+            var ptsEnc = ProtectEntry(entry, dek);
             var noteEnc = string.IsNullOrEmpty(entry.Note) ? null : CryptoService.EncryptString(entry.Note, dek);
 
             using var entryCmd = conn.CreateCommand();
@@ -604,10 +748,10 @@ ON CONFLICT(exam_id, student_id) DO UPDATE SET
             entryCmd.Parameters.AddWithValue("$examId", exam.Id);
             entryCmd.Parameters.AddWithValue("$studentId", entry.StudentId);
             entryCmd.Parameters.AddWithValue("$nameEnc", nameEnc);
-            entryCmd.Parameters.AddWithValue("$status", (int)entry.Status);
+            entryCmd.Parameters.AddWithValue("$status", 0);
             entryCmd.Parameters.AddWithValue("$ptsEnc", ptsEnc);
-            entryCmd.Parameters.AddWithValue("$words", (object?)entry.WordCount ?? DBNull.Value);
-            entryCmd.Parameters.AddWithValue("$errors", (object?)entry.ErrorCount ?? DBNull.Value);
+            entryCmd.Parameters.AddWithValue("$words", DBNull.Value);
+            entryCmd.Parameters.AddWithValue("$errors", DBNull.Value);
             entryCmd.Parameters.AddWithValue("$noteEnc", (object?)noteEnc ?? DBNull.Value);
 
             entryCmd.ExecuteNonQuery();

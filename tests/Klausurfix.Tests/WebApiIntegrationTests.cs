@@ -8,6 +8,10 @@ using Klausurfix.Infrastructure.Security;
 using Klausurfix.Infrastructure.Storage;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Xunit;
 
 public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>, IDisposable
@@ -24,6 +28,8 @@ public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Progra
         _factory = factory.WithWebHostBuilder(builder =>
         {
             builder.UseSetting("KLAUSURFIX_DATA_DIR", _testDir);
+            builder.ConfigureTestServices(services =>
+                services.Replace(ServiceDescriptor.Singleton<ILocalKeyProtector, TestKeyProtector>()));
         });
 
         _client = _factory.CreateClient(new WebApplicationFactoryClientOptions
@@ -64,6 +70,29 @@ public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Progra
         // Try accessing classes when locked
         var response = await _client.GetAsync("/api/klassen");
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _client.PostAsync("/api/application/shutdown", null)).StatusCode);
+        var health = await _client.GetAsync("/api/health");
+        Assert.Equal("Klausurfix/1", await health.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task SessionsAreIsolatedAndCrossOriginActionsAreRejected()
+    {
+        var recovery = KeyManager.GenerateRecoveryKey();
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/setup/init", new
+            { pin = "123456", recoveryKey = recovery, inactivityTimeoutMinutes = 15 })).StatusCode);
+        using var other = _factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("http://localhost:5000") });
+        Assert.Equal(HttpStatusCode.Unauthorized, (await other.GetAsync("/api/klassen")).StatusCode);
+        using var foreign = new HttpRequestMessage(HttpMethod.Post, "/api/auth/lock");
+        foreign.Headers.Add("Origin", "https://attacker.example");
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.SendAsync(foreign)).StatusCode);
+        using var foreignShutdown = new HttpRequestMessage(HttpMethod.Post, "/api/application/shutdown");
+        foreignShutdown.Headers.Add("Origin", "https://attacker.example");
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.SendAsync(foreignShutdown)).StatusCode);
+        other.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
+        Assert.Equal(HttpStatusCode.Unauthorized, (await other.PostAsync("/api/application/shutdown", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotImplemented, (await _client.PostAsync("/api/auth/unlock-hello", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync("/api/klassen")).StatusCode);
     }
 
     [Fact]
@@ -72,6 +101,8 @@ public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Progra
         // 1. Check Setup Status
         var statusRes = await _client.GetAsync("/api/setup/status");
         Assert.Equal(HttpStatusCode.OK, statusRes.StatusCode);
+        var initialStatus = await statusRes.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(initialStatus.GetProperty("isInitialized").GetBoolean());
 
         // 2. Generate Recovery Key
         var recKeyRes = await _client.GetFromJsonAsync<JsonElement>("/api/setup/generate-recovery-key");
@@ -86,6 +117,13 @@ public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Progra
             inactivityTimeoutMinutes = 15
         });
         Assert.Equal(HttpStatusCode.OK, initRes.StatusCode);
+        var setupStatus = await _client.GetFromJsonAsync<JsonElement>("/api/setup/status");
+        Assert.True(setupStatus.GetProperty("isInitialized").GetBoolean());
+        Assert.True(setupStatus.GetProperty("isUnlocked").GetBoolean());
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsJsonAsync("/api/setup/init", new
+        {
+            pin = "654321", recoveryKey, inactivityTimeoutMinutes = 15
+        })).StatusCode);
 
         // 4. Access Schulformen (already unlocked upon setup)
         var sfList = await _client.GetFromJsonAsync<List<Schulform>>("/api/schulformen");
@@ -107,12 +145,14 @@ public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Progra
         // 6. Add Student
         var stRes = await _client.PostAsJsonAsync($"/api/klassen/{cls.Id}/students", new
         {
-            firstName = "Julian",
-            lastName = "Weber"
+            firstName = "Julian"
         });
         Assert.Equal(HttpStatusCode.OK, stRes.StatusCode);
         var student = await stRes.Content.ReadFromJsonAsync<Student>();
         Assert.NotNull(student);
+        Assert.Equal("Julian", student.FullName);
+        var students = await _client.GetFromJsonAsync<List<Student>>($"/api/klassen/{cls.Id}/students");
+        Assert.Equal("Julian", Assert.Single(students!).FullName);
 
         // 7. Create Exam
         var examRes = await _client.PostAsJsonAsync("/api/klausuren", new
@@ -130,6 +170,7 @@ public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Progra
         var exam = await examRes.Content.ReadFromJsonAsync<Exam>();
         Assert.NotNull(exam);
         Assert.Single(exam.StudentEntries);
+        Assert.Equal("Julian", exam.StudentEntries[0].StudentName);
 
         // 8. Save Student Scores
         var entry = exam.StudentEntries[0];
@@ -140,6 +181,10 @@ public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Progra
             ErrorCount = 5, // FQ = 1.0 -> 0 deduction
             Status = StudentExamStatus.Graded
         };
+
+        var invalid = updatedEntry with { TaskPoints = new() { [1] = -1m } };
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await _client.PostAsJsonAsync($"/api/klausuren/{exam.Id}/entries", new[] { invalid })).StatusCode);
 
         var saveRes = await _client.PostAsJsonAsync($"/api/klausuren/{exam.Id}/entries", new[] { updatedEntry });
         Assert.Equal(HttpStatusCode.OK, saveRes.StatusCode);
@@ -159,6 +204,19 @@ public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Progra
         var docxRes = await _client.GetAsync($"/api/klausuren/{exam.Id}/export/docx");
         Assert.Equal(HttpStatusCode.OK, docxRes.StatusCode);
 
+        // Downloaded files can be imported and replace later changes.
+        var backupResponse = await _client.PostAsJsonAsync("/api/backups/download", new { recoveryKey });
+        Assert.Equal(HttpStatusCode.OK, backupResponse.StatusCode);
+        var backup = await backupResponse.Content.ReadAsByteArrayAsync();
+        await _client.PostAsJsonAsync("/api/klassen", new { name = "Nach Sicherung", schulformId = sek1.Id, schulformName = sek1.Name });
+        var restoreResponse = await _client.PostAsJsonAsync("/api/backups/restore-file", new
+        {
+            recoveryKey, dataBase64 = Convert.ToBase64String(backup)
+        });
+        Assert.Equal(HttpStatusCode.OK, restoreResponse.StatusCode);
+        var restoredClasses = await _client.GetFromJsonAsync<List<ClassGroup>>("/api/klassen");
+        Assert.Single(restoredClasses!);
+
         // 11. Lock and Verify 401
         var lockRes = await _client.PostAsync("/api/auth/lock", null);
         Assert.Equal(HttpStatusCode.OK, lockRes.StatusCode);
@@ -166,12 +224,22 @@ public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Progra
         var lockedCheck = await _client.GetAsync("/api/klassen");
         Assert.Equal(HttpStatusCode.Unauthorized, lockedCheck.StatusCode);
 
-        // 12. Unlock with PIN
+        // 12. A wrong PIN must leave the application locked.
+        var wrongPin = await _client.PostAsJsonAsync("/api/auth/unlock-pin", new { pin = "654321" });
+        Assert.Equal(HttpStatusCode.BadRequest, wrongPin.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _client.GetAsync("/api/klassen")).StatusCode);
+
+        // 13. Unlock with the PIN chosen during setup.
         var unlockRes = await _client.PostAsJsonAsync("/api/auth/unlock-pin", new { pin = "123456" });
         Assert.Equal(HttpStatusCode.OK, unlockRes.StatusCode);
 
         var unlockedCheck = await _client.GetAsync("/api/klassen");
         Assert.Equal(HttpStatusCode.OK, unlockedCheck.StatusCode);
+
+        var shutdown = await _client.PostAsync("/api/application/shutdown", null);
+        Assert.Equal(HttpStatusCode.OK, shutdown.StatusCode);
+        Assert.False(_factory.Services.GetRequiredService<KeyManager>().IsUnlocked);
+        Assert.True(_factory.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping.IsCancellationRequested);
     }
 }
 

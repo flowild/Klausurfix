@@ -110,6 +110,24 @@ public static class ExamCalculator
         var profile = profileOverride ?? exam.GradingProfileSnapshot;
         decimal totalMaxPoints = exam.TotalMaxPoints;
 
+        // A missing input is not a zero score. Keep excluded rows out of the
+        // distribution even if an older exam stored their status as Graded.
+        bool complete = exam.Tasks.Count > 0 && exam.Tasks.All(t =>
+            entry.TaskPoints.TryGetValue(t.TaskNumber, out var p) && p.HasValue && p >= 0 && p <= t.MaxPoints)
+            && entry.WordCount is > 0 && entry.ErrorCount is >= 0;
+        if (entry.Status != StudentExamStatus.Graded || !complete)
+        {
+            return new ExamCalculationResult
+            {
+                StudentId = entry.StudentId,
+                StudentName = entry.StudentName,
+                Status = entry.Status == StudentExamStatus.Graded ? StudentExamStatus.Incomplete : entry.Status,
+                MaxPoints = totalMaxPoints,
+                WordCount = entry.WordCount,
+                ErrorCount = entry.ErrorCount
+            };
+        }
+
         // If total max points is 0, we can't calculate percentage
         if (totalMaxPoints <= 0)
         {
@@ -147,7 +165,18 @@ public static class ExamCalculator
         decimal deduction = CalculateDeduction(fq, profile.DeductionTiers, profile.MaxDeduction);
 
         // Final grade
-        var (finalGrade, finalLabel) = CalculateFinalGrade(initGrade, deduction, profile.System);
+        decimal? deductionPoints = null;
+        decimal? adjustedPoints = null;
+        int finalGrade;
+        string finalLabel;
+        if (profile.DeductionUnit == DeductionUnit.ProzentDerGesamtpunkte)
+        {
+            deductionPoints = totalMaxPoints * deduction / 100m;
+            adjustedPoints = Math.Max(0m, rawPoints - deductionPoints.Value);
+            (finalGrade, finalLabel) = CalculateInitialGrade(adjustedPoints.Value / totalMaxPoints * 100m, profile.GradeKey, profile.System);
+        }
+        else
+            (finalGrade, finalLabel) = CalculateFinalGrade(initGrade, deduction, profile.System);
 
         return new ExamCalculationResult
         {
@@ -163,6 +192,8 @@ public static class ExamCalculator
             ErrorCount = entry.ErrorCount,
             ErrorQuotient = fq,
             Deduction = deduction,
+            DeductionPoints = deductionPoints,
+            AdjustedPoints = adjustedPoints,
             FinalGrade = finalGrade,
             FinalGradeLabel = finalLabel
         };

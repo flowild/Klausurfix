@@ -31,7 +31,7 @@ public class DocxExportService
             var titlePara = body.AppendChild(new Paragraph(
                 new ParagraphProperties(new SpacingBetweenLines { After = "120" }),
                 new Run(
-                    new RunProperties(new Bold(), new FontSize { Val = "32" }, new Color { Val = "1A365D" }),
+                    new RunProperties(new Bold(), new Color { Val = "124E4C" }, new FontSize { Val = "32" }),
                     new Text($"Klausurauswertung: {exam.Title}")
                 )
             ));
@@ -40,7 +40,7 @@ public class DocxExportService
             body.AppendChild(new Paragraph(
                 new ParagraphProperties(new SpacingBetweenLines { After = "180" }),
                 new Run(
-                    new RunProperties(new FontSize { Val = "20" }, new Color { Val = "4A5568" }),
+                    new RunProperties(new Color { Val = "4A5568" }, new FontSize { Val = "20" }),
                     new Text($"Klasse: {exam.ClassName}   |   Schulform: {exam.SchulformName}   |   Datum: {exam.Date:dd.MM.yyyy}")
                 )
             ));
@@ -50,7 +50,7 @@ public class DocxExportService
             body.AppendChild(new Paragraph(
                 new ParagraphProperties(new SpacingBetweenLines { After = "240" }),
                 new Run(
-                    new RunProperties(new Bold(), new FontSize { Val = "22" }, new Color { Val = "2B6CB0" }),
+                    new RunProperties(new Bold(), new Color { Val = "126763" }, new FontSize { Val = "22" }),
                     new Text($"Klassendurchschnitt: {avgStr} {summary.Unit}   |   Gewertet: {summary.GradedCount} von {summary.TotalStudents} Schülern (Ausgeschlossen: {summary.ExcludedCount})")
                 )
             ));
@@ -60,15 +60,16 @@ public class DocxExportService
 
             // Table properties
             var tblPr = new TableProperties(
+                new TableWidth { Type = TableWidthUnitValues.Pct, Width = "5000" },
                 new TableBorders(
                     new TopBorder { Val = BorderValues.Single, Size = 4, Color = "CCCCCC" },
                     new BottomBorder { Val = BorderValues.Single, Size = 4, Color = "CCCCCC" },
                     new InsideHorizontalBorder { Val = BorderValues.Single, Size = 4, Color = "E2E8F0" },
                     new InsideVerticalBorder { Val = BorderValues.Single, Size = 4, Color = "E2E8F0" }
-                ),
-                new TableWidth { Type = TableWidthUnitValues.Pct, Width = "5000" } // 100%
+                )
             );
             table.AppendChild(tblPr);
+            table.AppendChild(new TableGrid(Enumerable.Range(0, exam.Tasks.Count + 10).Select(_ => new GridColumn())));
 
             // Header row
             var headerRow = new TableRow(new TableRowProperties(new TableHeader()));
@@ -85,11 +86,11 @@ public class DocxExportService
             headerRow.Append(
                 CreateCell($"Gesamt ({exam.TotalMaxPoints.ToString("G", deCulture)}P)", isBold: true, isHeader: true),
                 CreateCell("%", isBold: true, isHeader: true),
-                CreateCell("Ausg.", isBold: true, isHeader: true),
+                CreateCell("Ausgangsnote", isBold: true, isHeader: true),
                 CreateCell("W / F", isBold: true, isHeader: true),
                 CreateCell("FQ", isBold: true, isHeader: true),
                 CreateCell("Abzug", isBold: true, isHeader: true),
-                CreateCell("Endnote", isBold: true, isHeader: true, bgColor: "DBEAFE"),
+                CreateCell("Endnote", isBold: true, isHeader: true, bgColor: "C8E6E1"),
                 CreateCell("Status", isBold: true, isHeader: true)
             );
             table.AppendChild(headerRow);
@@ -118,7 +119,9 @@ public class DocxExportService
 
                 string wfStr = res.WordCount.HasValue && res.ErrorCount.HasValue ? $"{res.WordCount}/{res.ErrorCount}" : "-";
                 string fqStr = res.ErrorQuotient.HasValue ? res.ErrorQuotient.Value.ToString("0.00", deCulture) : "-";
-                string abzugStr = res.Deduction > 0 ? $"-{res.Deduction.ToString("G", deCulture)}" : "0";
+                string abzugStr = res.DeductionPoints.HasValue
+                    ? $"{res.Deduction.ToString("G", deCulture)}% ({res.DeductionPoints.Value.ToString("G", deCulture)} P), verbleiben {res.AdjustedPoints!.Value.ToString("G", deCulture)} P"
+                    : res.Deduction > 0 ? $"-{res.Deduction.ToString("G", deCulture)}" : "0";
 
                 row.Append(
                     CreateCell(res.RawPoints.HasValue ? res.RawPoints.Value.ToString("0.#", deCulture) : "-"),
@@ -127,7 +130,7 @@ public class DocxExportService
                     CreateCell(wfStr),
                     CreateCell(fqStr),
                     CreateCell(abzugStr),
-                    CreateCell(res.FinalGrade.HasValue ? res.FinalGrade.Value.ToString() : "-", isBold: true, bgColor: "EFF6FF"),
+                    CreateCell(res.FinalGrade.HasValue ? res.FinalGrade.Value.ToString() : "-", isBold: true, bgColor: "E2F2EF"),
                     CreateCell(res.StatusDescription)
                 );
 
@@ -139,39 +142,46 @@ public class DocxExportService
 
             // Spacing
             body.AppendChild(new Paragraph(new ParagraphProperties(new SpacingBetweenLines { Before = "300", After = "120" }),
-                new Run(new RunProperties(new Bold(), new FontSize { Val = "24" }), new Text("Notenspiegel"))
+                new Run(new RunProperties(new Bold(), new Color { Val = "124E4C" }, new FontSize { Val = "24" }), new Text("Notenspiegel"))
             ));
 
             // Notenspiegel Table
             var nspTable = new Table();
             nspTable.AppendChild(new TableProperties(
+                new TableWidth { Type = TableWidthUnitValues.Pct, Width = "5000" },
                 new TableBorders(
                     new TopBorder { Val = BorderValues.Single, Size = 4, Color = "CCCCCC" },
                     new BottomBorder { Val = BorderValues.Single, Size = 4, Color = "CCCCCC" },
                     new InsideHorizontalBorder { Val = BorderValues.Single, Size = 4, Color = "E2E8F0" },
                     new InsideVerticalBorder { Val = BorderValues.Single, Size = 4, Color = "E2E8F0" }
-                ),
-                new TableWidth { Type = TableWidthUnitValues.Pct, Width = "2500" }
+                )
             ));
+            nspTable.AppendChild(new TableGrid(Enumerable.Range(0, summary.GradeDistribution.Count + 1).Select(_ => new GridColumn())));
 
             var nspHeader = new TableRow(new TableRowProperties(new TableHeader()));
-            nspHeader.Append(
-                CreateCell("Note / Punkte", isBold: true, isHeader: true),
-                CreateCell("Anzahl", isBold: true, isHeader: true)
-            );
+            nspHeader.Append(CreateCell("Note / Punkte", isBold: true, isHeader: true, bgColor: "DCECE9"));
+            foreach (var grade in summary.GradeDistribution.Keys)
+                nspHeader.Append(CreateCell(grade, isBold: true, isHeader: true, bgColor: "DCECE9"));
             nspTable.AppendChild(nspHeader);
 
-            foreach (var kvp in summary.GradeDistribution)
-            {
-                var nspRow = new TableRow();
-                nspRow.Append(
-                    CreateCell(kvp.Key),
-                    CreateCell(kvp.Value.ToString(), isBold: true)
-                );
-                nspTable.AppendChild(nspRow);
-            }
+            var nspRow = new TableRow();
+            nspRow.Append(CreateCell("Anzahl", isBold: true, bgColor: "F3F8F7"));
+            foreach (var count in summary.GradeDistribution.Values)
+                nspRow.Append(CreateCell(count.ToString(), isBold: true, bgColor: "F3F8F7"));
+            nspTable.AppendChild(nspRow);
 
             body.AppendChild(nspTable);
+
+            body.AppendChild(new Paragraph(new ParagraphProperties(new SpacingBetweenLines { Before = "240", After = "100" }),
+                new Run(new RunProperties(new Bold(), new Color { Val = "124E4C" }, new FontSize { Val = "22" }), new Text("Angewandte Bewertungsregeln"))));
+            var profile = exam.GradingProfileSnapshot;
+            var unit = ReportFormatting.DeductionUnit(profile.DeductionUnit);
+            var tiers = profile.DeductionTiers.Count == 0 ? "Keine Abzüge" : string.Join("; ", profile.DeductionTiers.Select(t =>
+                $"ab FQ {t.Threshold.ToString("G", deCulture)}: -{t.Deduction.ToString("G", deCulture)} {unit}"));
+            body.AppendChild(new Paragraph(new Run(new Text($"Notensystem: {(profile.System == GradingSystem.Schulnoten ? "Schulnoten (1–6)" : "Notenpunkte (0–15)")} · Abzugseinheit: {unit}"))));
+            body.AppendChild(new Paragraph(new Run(new Text("Fehlerquotient = (Rechtschreibfehler × 100) / Wortanzahl"))));
+            body.AppendChild(new Paragraph(new Run(new Text($"Abzugsstufen: {tiers}"))));
+            body.AppendChild(new Paragraph(new Run(new Text($"Nicht gewertet: {summary.ExcludedCount}"))));
 
             // Append section properties at the end of body
             body.AppendChild(sectionProps);
@@ -184,8 +194,9 @@ public class DocxExportService
 
     private static TableCell CreateCell(string text, bool isBold = false, bool isHeader = false, string? bgColor = null)
     {
-        var runProps = new RunProperties(new FontSize { Val = isHeader ? "18" : "17" });
+        var runProps = new RunProperties();
         if (isBold) runProps.Append(new Bold());
+        runProps.Append(new FontSize { Val = isHeader ? "18" : "17" });
 
         var p = new Paragraph(
             new ParagraphProperties(new SpacingBetweenLines { Before = "40", After = "40" }),
@@ -194,20 +205,20 @@ public class DocxExportService
 
         var cellPr = new TableCellProperties(
             new TableCellMargin(
-                new TopMargin { Width = "60" },
-                new BottomMargin { Width = "60" },
-                new LeftMargin { Width = "100" },
-                new RightMargin { Width = "100" }
+                new TopMargin { Width = "60", Type = TableWidthUnitValues.Dxa },
+                new LeftMargin { Width = "100", Type = TableWidthUnitValues.Dxa },
+                new BottomMargin { Width = "60", Type = TableWidthUnitValues.Dxa },
+                new RightMargin { Width = "100", Type = TableWidthUnitValues.Dxa }
             )
         );
 
         if (isHeader && bgColor == null)
         {
-            cellPr.Append(new Shading { Val = ShadingPatternValues.Clear, Fill = "F1F5F9" });
+            cellPr.PrependChild(new Shading { Val = ShadingPatternValues.Clear, Fill = "F1F5F9" });
         }
         else if (!string.IsNullOrEmpty(bgColor))
         {
-            cellPr.Append(new Shading { Val = ShadingPatternValues.Clear, Fill = bgColor });
+            cellPr.PrependChild(new Shading { Val = ShadingPatternValues.Clear, Fill = bgColor });
         }
 
         return new TableCell(cellPr, p);

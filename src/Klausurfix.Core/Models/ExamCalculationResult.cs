@@ -19,6 +19,8 @@ public record ExamCalculationResult
     public decimal? ErrorQuotient { get; init; }
 
     public decimal Deduction { get; init; } = 0.0m;
+    public decimal? DeductionPoints { get; init; }
+    public decimal? AdjustedPoints { get; init; }
 
     public int? FinalGrade { get; init; }
     public string FinalGradeLabel { get; init; } = string.Empty;

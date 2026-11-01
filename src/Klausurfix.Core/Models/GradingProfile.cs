@@ -11,17 +11,30 @@ public record GradingProfile
     public void Validate()
     {
         // Consistency check: system and deduction unit
-        if (System == GradingSystem.Schulnoten && DeductionUnit != DeductionUnit.Schulnoten)
+        if (System == GradingSystem.Schulnoten && DeductionUnit != DeductionUnit.Schulnoten && DeductionUnit != DeductionUnit.ProzentDerGesamtpunkte)
             throw new InvalidOperationException("Für das System Schulnoten muss die Abzugseinheit Schulnoten sein.");
-        if (System == GradingSystem.Notenpunkte && DeductionUnit != DeductionUnit.Notenpunkte)
+        if (System == GradingSystem.Notenpunkte && DeductionUnit != DeductionUnit.Notenpunkte && DeductionUnit != DeductionUnit.ProzentDerGesamtpunkte)
             throw new InvalidOperationException("Für das System Notenpunkte muss die Abzugseinheit Notenpunkte sein.");
 
         if (MaxDeduction.HasValue && MaxDeduction.Value < 0)
             throw new InvalidOperationException("Maximaler Abzug darf nicht negativ sein.");
 
         DeductionTier.ValidateTiers(DeductionTiers);
+        if (DeductionUnit == DeductionUnit.ProzentDerGesamtpunkte && DeductionTiers.Any(t => t.Deduction > 100))
+            throw new InvalidOperationException("Der prozentuale Abzug darf 100 % nicht überschreiten.");
         GradeBoundary.ValidateBoundaries(GradeKey, System);
     }
+
+    public static GradingProfile BeruflichesGymnasium() => CreateDefaultNotenpunkte() with
+    {
+        DeductionTiers = new() { new(3m, 1m), new(6m, 2m) }
+    };
+
+    public static GradingProfile FachschuleSozialwesen() => CreateDefaultSchulnoten() with
+    {
+        DeductionUnit = DeductionUnit.ProzentDerGesamtpunkte,
+        DeductionTiers = new() { new(2m, 1m), new(4m, 3m), new(6m, 6m) }
+    };
 
     public static GradingProfile CreateDefaultSchulnoten()
     {
