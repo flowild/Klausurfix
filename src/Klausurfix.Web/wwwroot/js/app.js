@@ -215,6 +215,8 @@ document.getElementById("copyRecoveryKeyBtn").addEventListener("click", () => {
 });
 
 // Unlock Screen Logic (Numpad + Keyboard)
+let pinSubmissionInProgress = false;
+let pinSubmissionQueued = false;
 function updatePinDots() {
   const display = document.getElementById("pinDisplay");
   display.replaceChildren(...Array.from({ length: Math.max(6, state.pinBuffer.length) }, (_, idx) => {
@@ -228,10 +230,10 @@ async function handlePinInput(digit) {
   if (state.pinBuffer.length >= 64) return;
   state.pinBuffer += digit;
   updatePinDots();
-
+  if (state.pinBuffer.length === 6) await submitPin(true);
 }
 
-document.getElementById("submitPinBtn").addEventListener("click", submitPin);
+document.getElementById("submitPinBtn").addEventListener("click", () => submitPin());
 
 function handlePinBackspace() {
   if (state.pinBuffer.length > 0) {
@@ -245,10 +247,15 @@ function handlePinClear() {
   updatePinDots();
 }
 
-async function submitPin() {
+async function submitPin(silent = false) {
+  if (pinSubmissionInProgress) {
+    if (!silent) pinSubmissionQueued = true;
+    return;
+  }
+  pinSubmissionInProgress = true;
   const pin = state.pinBuffer;
   const msgEl = document.getElementById("unlockMessage");
-  msgEl.textContent = "";
+  if (!silent) msgEl.textContent = "";
 
   try {
     const res = await api.unlockPin(pin);
@@ -260,9 +267,16 @@ async function submitPin() {
       switchView("dashboard");
     }
   } catch (err) {
-    state.pinBuffer = "";
-    updatePinDots();
-    msgEl.textContent = err.message;
+    if (!silent) {
+      if (state.pinBuffer === pin) { state.pinBuffer = ""; updatePinDots(); }
+      msgEl.textContent = err.message;
+    }
+  } finally {
+    pinSubmissionInProgress = false;
+    if (pinSubmissionQueued) {
+      pinSubmissionQueued = false;
+      if (!state.isUnlocked && state.pinBuffer) void submitPin();
+    }
   }
 }
 
@@ -286,6 +300,8 @@ window.addEventListener("keydown", (e) => {
   } else if (e.key === "Escape") {
     handlePinClear();
   } else if (e.key === "Enter") {
+    if (e.target instanceof HTMLButtonElement) return;
+    e.preventDefault();
     submitPin();
   }
 });
@@ -528,7 +544,7 @@ function openEditSchulformModal(id) {
   const modal = document.createElement("div");
   modal.className = "modal-backdrop";
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 680px;">
+    <div class="modal-content schulform-modal">
       <h2 class="modal-title">${isNew ? "Neue Schulform" : "Schulform bearbeiten"}</h2>
       <form id="editSfForm">
         <div class="form-group">
@@ -554,11 +570,15 @@ function openEditSchulformModal(id) {
           </div>
         </div>
 
-        <div class="form-group" style="margin-top: 1rem;">
-          <label class="form-label" for="gradeKeyInput">Notenschlüssel: Mindestprozent; Note / Notenpunkte</label>
-          <textarea id="gradeKeyInput" class="form-control" rows="7" spellcheck="false">${currentProfile.gradeKey.map(b => `${b.minPercentage};${b.gradeValue}`).join('\n')}</textarea>
-          <p class="form-hint">Eine Stufe pro Zeile, zum Beispiel 87,5;1. Die letzte Stufe muss bei 0 beginnen.</p>
-        </div>
+        <section class="grade-key-editor" aria-labelledby="gradeKeyHeading">
+          <div class="grade-key-heading"><div><h3 id="gradeKeyHeading">Notenschlüssel</h3>
+            <p class="form-hint">Für jede Note die Untergrenze in Prozent eingeben. Die Grenze gilt einschließlich; darunter gilt die nächste Stufe. Eine Stufe muss bei 0 % beginnen.</p></div>
+          </div>
+          <div class="grade-key-table-label" id="gradeKeyValueHeading">Notenstufen</div>
+          <div id="gradeKeyRows" class="grade-key-rows" aria-label="Notenstufen"></div>
+          <p class="grade-key-error" id="gradeKeyError" role="alert" tabindex="-1"></p>
+          <p class="form-hint">Beim Wechsel des Notensystems wird dessen vorgeschlagener Notenschlüssel geladen. Bitte die Grenzen für Ihre Schule prüfen.</p>
+        </section>
 
         <!-- Tiers Table -->
         <div style="margin-top: 1.5rem;">
@@ -602,6 +622,52 @@ function openEditSchulformModal(id) {
   `;
 
   document.getElementById("modalContainer").appendChild(modal);
+
+  function addGradeRow(boundary = null) {
+    const rows = modal.querySelector("#gradeKeyRows");
+    const row = document.createElement("div");
+    row.className = "grade-key-row";
+    row.originalGrade = boundary?.gradeValue;
+    row.originalLabel = boundary?.label;
+    row.innerHTML = `<div class="grade-key-fixed-value"><span class="grade-key-mobile-label">${currentProfile.system === 1 ? 'Note' : 'Notenpunkte'} </span><span class="grade-key-value">${boundary ? boundary.gradeValue : ''}</span></div>
+      <label class="grade-key-percent-label"><span>Ab %</span><input type="text" inputmode="decimal" class="form-control grade-key-percent" aria-label="Untergrenze in Prozent für ${currentProfile.system === 1 ? 'Note' : 'Notenpunkte'} ${boundary ? boundary.gradeValue : ''}" placeholder="z. B. 87,5" value="${boundary ? escapeHtml(String(boundary.minPercentage).replace('.', ',')) : ''}"></label>`;
+    row.querySelectorAll("input").forEach(input => input.addEventListener("input", () => validateGradeKey()));
+    rows.appendChild(row);
+    return row;
+  }
+
+  function renderGradeKey() {
+    modal.querySelector("#gradeKeyRows").replaceChildren();
+    modal.querySelector("#gradeKeyValueHeading").textContent = currentProfile.system === 1 ? "Noten" : "Notenpunkte";
+    currentProfile.gradeKey.forEach(addGradeRow);
+    modal.querySelector("#gradeKeyError").textContent = "";
+  }
+
+  function validateGradeKey() {
+    const rows = [...modal.querySelectorAll(".grade-key-row")];
+    let error = rows.length ? "" : "Bitte mindestens eine Notenstufe hinzufügen.";
+    const values = rows.map(row => {
+      const percent = row.querySelector(".grade-key-percent"), grade = row.querySelector(".grade-key-value");
+      const minPercentage = parseGermanNumber(percent.value);
+      const gradeValue = grade.textContent.trim() === "" ? NaN : Number(grade.textContent);
+      const percentValid = minPercentage !== null && minPercentage >= 0 && minPercentage <= 100;
+      const gradeValid = Number.isInteger(gradeValue) && gradeValue >= (currentProfile.system === 1 ? 1 : 0) && gradeValue <= (currentProfile.system === 1 ? 6 : 15);
+      percent.setAttribute("aria-invalid", String(!percentValid));
+      if (!percentValid) error ||= "Bitte für jede Stufe eine Prozentgrenze zwischen 0 und 100 eingeben.";
+      if (!gradeValid) error ||= currentProfile.system === 1 ? "Bitte für jede Stufe eine ganze Note von 1 bis 6 eingeben." : "Bitte für jede Stufe ganze Notenpunkte von 0 bis 15 eingeben.";
+      return { minPercentage, gradeValue, label: row.originalGrade === gradeValue ? row.originalLabel : String(gradeValue) };
+    });
+    if (!error) {
+      const sorted = [...values].sort((a, b) => b.minPercentage - a.minPercentage);
+      if (sorted.at(-1).minPercentage !== 0) error = "Eine Notenstufe muss bei 0 % beginnen.";
+      else if (new Set(sorted.map(b => b.minPercentage)).size !== sorted.length) error = "Jede Prozentgrenze darf nur einmal vorkommen.";
+      else if (sorted.some((b, i) => i > 0 && (currentProfile.system === 1 ? b.gradeValue < sorted[i - 1].gradeValue : b.gradeValue > sorted[i - 1].gradeValue)))
+        error = "Bei weniger Prozent muss die Note gleich bleiben oder schlechter werden.";
+    }
+    modal.querySelector("#gradeKeyError").textContent = error;
+    return error ? null : values;
+  }
+
 
   function renderTiers() {
     const tbody = modal.querySelector("#sfTiersTbody");
@@ -675,7 +741,7 @@ function openEditSchulformModal(id) {
     modal.querySelector("#sfDeductionUnitSelect").value = sys.toString();
     try {
       currentProfile.gradeKey = await api.getDefaultGradeKey(sys);
-      modal.querySelector("#gradeKeyInput").value = currentProfile.gradeKey.map(b => `${b.minPercentage};${b.gradeValue}`).join("\n");
+      renderGradeKey();
     } catch (err) { showToast(err.message, "error"); }
   });
   modal.querySelector("#sfDeductionUnitSelect").addEventListener("change", e => {
@@ -683,6 +749,7 @@ function openEditSchulformModal(id) {
   });
 
   renderTiers();
+  renderGradeKey();
   updatePreview();
 
   modal.querySelector("#closeSfModalBtn").addEventListener("click", () => modal.remove());
@@ -693,15 +760,9 @@ function openEditSchulformModal(id) {
     if (!name) return;
 
     try {
-      const gradeLines = modal.querySelector("#gradeKeyInput").value.trim().split(/\r?\n/);
-      currentProfile.gradeKey = gradeLines.map(line => {
-        const parts = line.split(";");
-        const minPercentage = parseGermanNumber(parts[0]);
-        const gradeValue = Number(parts[1]);
-        if (parts.length !== 2 || !parts[1].trim() || minPercentage === null || !Number.isInteger(gradeValue))
-          throw new Error("Bitte jede Notenstufe als Mindestprozent;Note eingeben.");
-        return { minPercentage, gradeValue, label: String(gradeValue) };
-      });
+      const gradeKey = validateGradeKey();
+      if (!gradeKey) { modal.querySelector("#gradeKeyError").focus(); return; }
+      currentProfile.gradeKey = gradeKey;
       const payload = {
         id: sf ? sf.id : undefined,
         name,

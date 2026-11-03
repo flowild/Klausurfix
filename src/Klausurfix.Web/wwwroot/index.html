@@ -128,7 +128,7 @@
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
         </div>
         <h2 class="card-title">Klausurfix entsperren</h2>
-        <p class="card-subtitle">Geben Sie Ihre App-PIN ein und bestätigen Sie mit „Entsperren“.</p>
+        <p class="card-subtitle">Bei einer sechsstelligen App-PIN wird nach der letzten Ziffer automatisch entsperrt.</p>
 
         <!-- PIN display dots -->
         <div class="pin-display" id="pinDisplay">
@@ -540,7 +540,7 @@
           <section class="backup-section" aria-labelledby="savedBackupsHeading">
           <h3 id="savedBackupsHeading" class="backup-section-title">Gespeicherte Sicherungen</h3>
           <p class="backup-help">Vorhandene Sicherungen bleiben bis zum Löschen erhalten.</p>
-          <div class="table-responsive backup-table-container">
+          <div class="table-responsive backup-table-container" tabindex="0" role="region" aria-labelledby="savedBackupsHeading">
             <table class="data-table backup-table">
               <thead>
                 <tr>

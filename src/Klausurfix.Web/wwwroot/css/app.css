@@ -83,6 +83,21 @@
 .class-card .class-body { padding: 0 1.5rem 1.5rem; }
 .class-card .class-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
 .theme-toggle { white-space: nowrap; }
+.modal-content.schulform-modal { max-width: 1000px; }
+.grade-key-editor { border-top: 1px solid var(--gray-200); margin-top: 1rem; padding-top: 1.25rem; }
+.grade-key-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+.grade-key-heading button { flex-shrink: 0; }
+.grade-key-table-label { color: var(--gray-700); font-size: .85rem; font-weight: 600; margin-bottom: .4rem; }
+.grade-key-rows { display: grid; grid-template-columns: repeat(auto-fit, minmax(105px, 1fr)); gap: 1px; overflow: hidden; border: 1px solid var(--gray-200); border-radius: var(--radius-md); background: var(--gray-200); }
+.grade-key-row { min-width: 0; padding: .65rem; background: var(--surface); }
+.grade-key-percent-label { display: block; color: var(--gray-600); font-size: .8rem; font-weight: 600; }
+.grade-key-percent-label span { display: block; margin-bottom: .3rem; }
+.grade-key-row input[aria-invalid="true"] { border-color: var(--danger); }
+.grade-key-fixed-value { display: flex; flex-direction: column; gap: .1rem; margin-bottom: .65rem; color: var(--gray-900); font-weight: 700; }
+.grade-key-value { font-size: 1.25rem; font-weight: 700; }
+.grade-key-mobile-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.grade-key-error { color: var(--danger); font-size: .9rem; margin: .5rem 0; }
+@media (max-width: 500px) { .grade-key-heading { flex-direction: column; } }
 
 .backup-section { border-top: 1px solid var(--gray-200); margin-top: 1.5rem; padding-top: 1.5rem; }
 .backup-section-title { font-size: 1.05rem; margin-bottom: .75rem; }
@@ -94,7 +109,8 @@
 .backup-status { color: var(--gray-800); margin-top: 1rem; }
 .backup-help { color: var(--gray-500); font-size: .9rem; margin-top: .35rem; }
 .backup-actions { display: flex; flex-wrap: wrap; gap: .75rem; }
-.backup-table-container { margin-top: .9rem; }
+.table-responsive.backup-table-container { margin-top: .9rem; max-height: min(28rem, 55vh); overflow: auto; }
+.backup-table thead th { position: sticky; top: 0; z-index: 1; }
 .backup-table td:first-child { overflow-wrap: anywhere; min-width: 12rem; }
 .backup-table .backup-action-cell { min-width: 14rem; vertical-align: middle; }
 .backup-row-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; }
@@ -626,12 +642,15 @@ body {
 /* Numeric Keypad for PIN Unlock */
 .pin-display {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 0.75rem;
   margin: 1.5rem 0;
+  max-width: 100%;
 }
 
 .pin-dot {
+  flex: 0 0 18px;
   width: 18px;
   height: 18px;
   border-radius: 50%;

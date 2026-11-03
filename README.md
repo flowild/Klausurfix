@@ -66,6 +66,8 @@ Klausurfix bindet ausschließlich an den lokalen Loopback-Adapter und wird im Br
 3. Notieren Sie sich den generierten **Wiederherstellungsschlüssel**.
 4. Nach Bestätigung startet Klausurfix direkt in die Klausurenübersicht. Ein Klick auf eine Klausur öffnet ihre Eingabetabelle.
 
+Beim Entsperren wird nach der sechsten Ziffer automatisch ein Entsperrversuch durchgeführt. Ist die PIN länger, weitere Ziffern eingeben und mit **Entsperren** bestätigen. Die automatische Prüfung zählt bei einer längeren PIN als Fehlversuch und kann bei wiederholter Eingabe die übliche Verzögerung auslösen.
+
 ---
 
 ## Klausurendeckblatt erstellen
