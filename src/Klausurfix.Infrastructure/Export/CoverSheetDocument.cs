@@ -46,6 +46,7 @@ public record CoverSheetDocument
         var defaultNotice = FormatDeductionNotice(profile);
         var headerTitle = FormatHeaderTitle(exam.Title, settings.Subject);
         var headerDate = exam.Date.ToString("dd.MM.yyyy", CultureInfo.InvariantCulture);
+        var boundaries = profile.GradeKey.OrderByDescending(b => b.MinPercentage).ToList();
         return new()
         {
             IsSaved = exam.CoverSheet != null,
@@ -59,8 +60,9 @@ public record CoverSheetDocument
             HeaderLine = string.Join("   ", new[] { headerTitle, exam.ClassName, headerDate }.Where(s => !string.IsNullOrWhiteSpace(s))),
             TotalPoints = $"Gesamt: ______ / {Number(exam.TotalMaxPoints)} Punkte",
             GradeUnit = profile.System == GradingSystem.Notenpunkte ? "Notenpunkte" : "Schulnote",
-            GradeKey = profile.GradeKey.OrderByDescending(b => b.MinPercentage)
-                .Select(b => new CoverSheetGrade(Number(b.MinPercentage), b.GradeValue.ToString(CultureInfo.InvariantCulture))).ToList(),
+            GradeKey = boundaries.Select((b, i) => new CoverSheetGrade(
+                FormatWholePercentageRange(b.MinPercentage, i == 0 ? null : boundaries[i - 1].MinPercentage),
+                b.GradeValue.ToString(CultureInfo.InvariantCulture))).ToList(),
             DefaultDeductionNotice = defaultNotice,
             DeductionNotice = settings.DeductionNotice ?? defaultNotice,
             Tasks = exam.Tasks.OrderBy(t => t.TaskNumber).Select(t =>
@@ -74,6 +76,13 @@ public record CoverSheetDocument
                     Number(t.MaxPoints), earned, recognition.Parts, recognition.OperatorIds);
             }).ToList()
         };
+    }
+
+    private static string FormatWholePercentageRange(decimal minimum, decimal? nextMinimum)
+    {
+        var lower = decimal.Ceiling(minimum);
+        var upper = nextMinimum.HasValue ? decimal.Ceiling(nextMinimum.Value) - 1 : 100m;
+        return lower > upper ? "–" : lower == upper ? Number(lower) : $"{Number(upper)}–{Number(lower)}";
     }
 
     private static string FormatHeaderTitle(string title, string subject)

@@ -112,7 +112,14 @@ app.Use(async (context, next) =>
 
 // Serve frontend from wwwroot
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = context =>
+    {
+        // Revalidate frontend files so updates also reach an existing browser cache.
+        context.Context.Response.Headers.CacheControl = "no-cache";
+    }
+});
 
 #region Setup & Auth APIs
 

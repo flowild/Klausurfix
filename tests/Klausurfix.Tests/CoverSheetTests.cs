@@ -164,7 +164,8 @@ public class CoverSheetTests
             }
         };
         var model = CoverSheetDocument.Create(exam);
-        Assert.Equal("87,123456", model.GradeKey[0].Percentage);
+        Assert.Equal("100–88", model.GradeKey[0].Percentage);
+        Assert.Equal("87–0", model.GradeKey[1].Percentage);
         Assert.Equal("Schulnote", model.GradeUnit);
         Assert.Equal("Gesamt: ______ / 51,75 Punkte", model.TotalPoints);
         Assert.Equal("______ / 12,25 Punkte", model.Tasks[0].Points);

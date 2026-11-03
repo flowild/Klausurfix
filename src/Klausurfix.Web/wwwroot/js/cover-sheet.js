@@ -93,7 +93,7 @@ export function createCoverSheetEditor({ api, notify, beforeOpen }) {
           ${s.useTemplateLogo ? '<img src="/api/deckblatt/logo" alt="Saalburgschule Usingen">' : ""}
           <span>Name:___________________</span><div class="cover-header-row"><span>${escape(m.headerTitle)}</span><span>${escape(m.headerClass)}</span><span>${escape(m.headerDate)}</span></div></header>
         ${s.showGradeKey ? `<div class="cover-key-scroll"><table class="cover-grade-key"><tbody>
-          <tr><th>ab %</th>${m.gradeKey.map(g => `<td>${escape(g.percentage)}</td>`).join("")}</tr>
+          <tr><th>Prozentpunkte</th>${m.gradeKey.map(g => `<td>${escape(g.percentage)}</td>`).join("")}</tr>
           <tr><th>${escape(m.gradeUnit)}</th>${m.gradeKey.map(g => `<td>${escape(g.grade)}</td>`).join("")}</tr>
         </tbody></table></div>` : ""}
         <p class="cover-center cover-rules" data-notice-preview ${s.showDeductionRules && m.deductionNotice ? "" : "hidden"}>${escape(m.deductionNotice)}</p>
