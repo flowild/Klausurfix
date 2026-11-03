@@ -3,7 +3,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$packageVersion = '0.1.1'
+$packageVersion = '0.1.2'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $outputRoot = Join-Path $projectRoot 'release'
 $projectPath = Join-Path $projectRoot 'src\Klausurfix.Web\Klausurfix.Web.csproj'

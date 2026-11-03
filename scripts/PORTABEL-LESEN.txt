@@ -1,4 +1,4 @@
-Klausurfix 0.1.1 – portable Windows-Version
+Klausurfix 0.1.2 – portable Windows-Version
 
 1. Das ZIP-Archiv vollständig in einen lokalen Ordner entpacken.
 2. Klausurfix.vbs doppelklicken. Klausurfix öffnet sich im Browser.
@@ -18,7 +18,7 @@ Zum Übertragen eigener Daten eine verschlüsselte Sicherung und den getrennt
 aufbewahrten Wiederherstellungsschlüssel verwenden. Exporte und Sicherungskopien
 nicht in Cloud-Ordnern speichern, wenn personenbezogene Daten geschützt werden sollen.
 
-Version 0.1.1 bindet verschlüsselte Felder an ihren Datensatz und ihre Spalte.
+Seit Version 0.1.1 sind verschlüsselte Felder an ihren Datensatz und ihre Spalte gebunden.
 Beim ersten Entsperren werden bestehende Daten automatisch umgestellt. Vor dem
 Wechsel in der bisherigen Version eine verschlüsselte Sicherung erstellen und
 den Wiederherstellungsschlüssel bereithalten. Die umgestellte Arbeitsdatenbank
