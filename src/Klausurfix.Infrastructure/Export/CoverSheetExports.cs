@@ -74,7 +74,7 @@ public static class CoverSheetExports
                                 .Border(0.5f).BorderColor("#000000").Padding(3).AlignCenter().Text(text).FontSize(8);
                             if (bold) t.Bold();
                         }
-                        Cell("Prozentpunkte", true, true);
+                        Cell("Punkte", true, true);
                         foreach (var grade in model.GradeKey) Cell(grade.Percentage, true, true);
                         Cell(model.GradeUnit, true);
                         foreach (var grade in model.GradeKey) Cell(grade.Grade);
@@ -196,7 +196,7 @@ public static class CoverSheetExports
                     if (shaded) properties.Append(new Shading { Val = ShadingPatternValues.Clear, Fill = "D0CECE" });
                     return new TableCell(properties, Para(text, bold: shaded || index == 0, size: 16, alignment: JustificationValues.Center, after: "0"));
                 }));
-                table.Append(Row(new[] { "Prozentpunkte" }.Concat(model.GradeKey.Select(g => g.Percentage)), true),
+                table.Append(Row(new[] { "Punkte" }.Concat(model.GradeKey.Select(g => g.Percentage)), true),
                     Row(new[] { model.GradeUnit }.Concat(model.GradeKey.Select(g => g.Grade)), false));
                 body.Append(table);
             }
