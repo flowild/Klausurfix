@@ -934,9 +934,9 @@ async function prepareNewExamForm() {
   tasksList.innerHTML = "";
 
   // 3 initial sample tasks
-  addTaskRow("Aufgabe 1", 20);
-  addTaskRow("Aufgabe 2", 20);
-  addTaskRow("Aufgabe 3", 10);
+  addTaskRow("Aufgabe 1", 30);
+  addTaskRow("Aufgabe 2", 30);
+  addTaskRow("Aufgabe 3", 40);
   updateTotalExamPoints();
 }
 
@@ -950,7 +950,7 @@ function addTaskRow(name = "", points = 10) {
     <span style="font-weight: 700; width: 30px;">#${taskNum}</span>
     <input type="text" class="form-control task-name-input" placeholder="Aufgabenname" value="${escapeHtml(name || `Aufgabe ${taskNum}`)}" required style="flex: 2;">
     <div style="display: flex; align-items: center; gap: 0.25rem; flex: 1;">
-      <input type="number" step="0.5" min="0.5" class="form-control task-pts-input" value="${points}" required style="width: 80px;">
+      <input type="number" step="1" min="1" class="form-control task-pts-input" value="${points}" required style="width: 80px;">
       <span style="font-weight: 600; color: var(--gray-600);">Punkte</span>
     </div>
     <button type="button" class="btn btn-secondary btn-sm remove-task-btn" style="color: var(--danger);">&times;</button>
@@ -973,7 +973,7 @@ function updateTotalExamPoints() {
   document.querySelectorAll(".task-pts-input").forEach(inp => {
     total += parseFloat(inp.value) || 0;
   });
-  document.getElementById("newExamTotalPoints").textContent = `${formatNumber(total, 1)} P`;
+  document.getElementById("newExamTotalPoints").textContent = `${formatNumber(total, 1)} / 100 P`;
 }
 
 document.getElementById("createExamForm").addEventListener("submit", async (e) => {
@@ -993,6 +993,11 @@ document.getElementById("createExamForm").addEventListener("submit", async (e) =
 
   if (tasks.length === 0) {
     showToast("Mindestens eine Aufgabe erforderlich.", "error");
+    return;
+  }
+  if (tasks.reduce((sum, task) => sum + task.maxPoints, 0) !== 100) {
+    showToast("Die Höchstpunkte aller Aufgaben müssen zusammen genau 100 Punkte ergeben.", "error");
+    document.querySelector("#newExamTasksList .task-pts-input")?.focus();
     return;
   }
 
@@ -1111,12 +1116,12 @@ function renderMatrixTable(exam, entries) {
 
     exam.tasks.forEach(t => {
       const val = entry.taskPoints?.[t.taskNumber];
-      const valStr = val !== null && val !== undefined ? formatNumber(val, 1) : "";
+      const valStr = val !== null && val !== undefined ? String(val).replace(".", ",") : "";
       tableHtml += `
         <td>
           <input type="text" class="matrix-input task-pts-cell"
-            data-task="${t.taskNumber}" data-max="${t.maxPoints}"
-            value="${valStr}" placeholder="0" inputmode="decimal" ${readOnly}>
+            data-task="${t.taskNumber}" data-max="${t.maxPoints}" data-legacy="${val !== null && val !== undefined && !Number.isInteger(val) ? val : ""}"
+            value="${valStr}" placeholder="0" inputmode="numeric" ${readOnly}>
         </td>
       `;
     });
@@ -1187,8 +1192,9 @@ function collectRowData(tr, exam, entry) {
     const taskNum = parseInt(inp.dataset.task, 10);
     const maxPts = parseFloat(inp.dataset.max);
     const val = parseGermanNumber(inp.value);
-    const invalid = inp.value.trim() !== "" && (val === null || val < 0 || val > maxPts);
-    inp.setCustomValidity(invalid ? `Punkte müssen zwischen 0 und ${maxPts} liegen.` : "");
+    const legacy = inp.dataset.legacy !== "" && val === Number(inp.dataset.legacy);
+    const invalid = inp.value.trim() !== "" && (val === null || val < 0 || val > maxPts || (!Number.isInteger(val) && !legacy));
+    inp.setCustomValidity(invalid ? `Bitte ganze Punkte zwischen 0 und ${maxPts} eingeben.` : "");
     inp.setAttribute("aria-invalid", String(invalid));
     valid = valid && !invalid;
     taskPoints[taskNum] = val;
@@ -1442,6 +1448,11 @@ async function loadSettings() {
 
 async function loadBackupsTable() {
   try {
+    const automatic = await api.getAutomaticBackupStatus();
+    document.getElementById("automaticBackupEnabled").checked = automatic.enabled;
+    document.getElementById("automaticBackupInterval").value = String(automatic.intervalHours);
+    document.getElementById("automaticBackupStatus").textContent = automatic.error ||
+      `${automatic.enabled ? "Automatische Sicherung ist eingeschaltet." : "Automatische Sicherung ist ausgeschaltet."} ${automatic.lastBackup ? `Letzte automatische Sicherung: ${new Date(automatic.lastBackup).toLocaleString("de-DE")}.` : "Noch keine automatische Sicherung vorhanden."}`;
     const backups = await api.getBackups();
     const tbody = document.getElementById("backupsListTable");
     tbody.innerHTML = "";
@@ -1457,9 +1468,10 @@ async function loadBackupsTable() {
         <td style="font-weight: 600;">${escapeHtml(b.fileName)}</td>
         <td>${new Date(b.createdAt).toLocaleString("de-DE")}</td>
         <td>${(b.fileSizeBytes / 1024).toFixed(1)} KB</td>
-        <td style="text-align: right;">
-          <button class="btn btn-secondary btn-sm restore-backup-btn" data-file="${escapeHtml(b.fileName)}" style="margin-right: 0.3rem;">Wiederherstellen</button>
-          <button class="btn btn-secondary btn-sm delete-backup-btn" data-file="${escapeHtml(b.fileName)}" style="color: var(--danger);">&times;</button>
+        <td class="backup-action-cell"><div class="backup-row-actions">
+          <button class="btn btn-secondary btn-sm restore-backup-btn" data-file="${escapeHtml(b.fileName)}">Wiederherstellen</button>
+          <button class="btn btn-secondary btn-sm delete-backup-btn" data-file="${escapeHtml(b.fileName)}" aria-label="Sicherung ${escapeHtml(b.fileName)} löschen">Löschen</button>
+        </div>
         </td>
       `;
       tbody.appendChild(tr);
@@ -1480,6 +1492,19 @@ async function loadBackupsTable() {
     showToast(err.message, "error");
   }
 }
+
+document.getElementById("automaticBackupForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const button = e.currentTarget.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    await api.setAutomaticBackupSettings(document.getElementById("automaticBackupEnabled").checked,
+      Number(document.getElementById("automaticBackupInterval").value));
+    await loadBackupsTable();
+    showToast("Sicherungseinstellungen gespeichert.", "success");
+  } catch (err) { showToast(err.message, "error"); }
+  finally { button.disabled = false; }
+});
 
 document.getElementById("changePinForm").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -1550,27 +1575,23 @@ document.getElementById("saveTimeoutBtn").addEventListener("click", async () => 
   }
 });
 
-document.getElementById("openCreateBackupModalBtn").addEventListener("click", () => {
-  openPromptModal("Sicherung erstellen", "Geben Sie Ihren Wiederherstellungsschlüssel ein, um die Sicherungsdatei zu verschlüsseln:", async (key) => {
+document.getElementById("openCreateBackupModalBtn").addEventListener("click", async e => {
+    const button = e.currentTarget;
+    button.disabled = true;
     try {
-      await api.createBackup(key);
+      await api.createBackup();
       showToast("Verschlüsselte Sicherung erfolgreich erstellt.", "success");
       loadBackupsTable();
     } catch (err) {
       showToast(err.message, "error");
-    }
-  });
+    } finally { button.disabled = false; }
 });
 
-document.getElementById("openDownloadBackupModalBtn").addEventListener("click", () => {
-  openPromptModal("Sicherungsdatei herunterladen", "Geben Sie Ihren Wiederherstellungsschlüssel ein:", async (key) => {
+document.getElementById("openDownloadBackupModalBtn").addEventListener("click", async e => {
+    const button = e.currentTarget;
+    button.disabled = true;
     try {
-      const res = await fetch("/api/backups/download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
-        body: JSON.stringify({ recoveryKey: key })
-      });
-      if (!res.ok) throw new Error("Download fehlgeschlagen.");
+      const res = await api.downloadBackup();
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -1580,8 +1601,7 @@ document.getElementById("openDownloadBackupModalBtn").addEventListener("click", 
       window.URL.revokeObjectURL(url);
     } catch (err) {
       showToast(err.message, "error");
-    }
-  });
+    } finally { button.disabled = false; }
 });
 
 function openRestoreBackupModal(fileName) {

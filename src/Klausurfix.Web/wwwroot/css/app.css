@@ -84,6 +84,26 @@
 .class-card .class-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
 .theme-toggle { white-space: nowrap; }
 
+.backup-section { border-top: 1px solid var(--gray-200); margin-top: 1.5rem; padding-top: 1.5rem; }
+.backup-section-title { font-size: 1.05rem; margin-bottom: .75rem; }
+.backup-settings-form { display: grid; gap: .9rem; max-width: 32rem; }
+.backup-settings-form .form-group { margin-bottom: 0; }
+.backup-settings-form button { justify-self: start; }
+.backup-toggle { display: flex; align-items: center; gap: .6rem; min-height: var(--touch-target); cursor: pointer; }
+.backup-toggle input { width: 1.15rem; height: 1.15rem; accent-color: var(--primary); }
+.backup-status { color: var(--gray-800); margin-top: 1rem; }
+.backup-help { color: var(--gray-500); font-size: .9rem; margin-top: .35rem; }
+.backup-actions { display: flex; flex-wrap: wrap; gap: .75rem; }
+.backup-table-container { margin-top: .9rem; }
+.backup-table td:first-child { overflow-wrap: anywhere; min-width: 12rem; }
+.backup-table .backup-action-cell { min-width: 17rem; vertical-align: middle; }
+.backup-row-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; }
+.backup-row-actions .delete-backup-btn { color: var(--danger); }
+@media (max-width: 600px) {
+  .backup-actions { flex-direction: column; align-items: stretch; }
+  .backup-settings-form button { justify-self: stretch; }
+}
+
 * {
   box-sizing: border-box;
   margin: 0;

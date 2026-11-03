@@ -32,6 +32,8 @@ builder.Services.AddSingleton<LocalSessions>();
 builder.Services.AddSingleton<HelloCeremonies>();
 builder.Services.AddSingleton<DatabaseContext>();
 builder.Services.AddSingleton<BackupService>();
+builder.Services.AddSingleton<AutomaticBackupWorker>();
+builder.Services.AddHostedService(services => services.GetRequiredService<AutomaticBackupWorker>());
 builder.Services.AddSingleton<CleanupService>();
 builder.Services.AddSingleton<PdfExportService>();
 builder.Services.AddSingleton<DocxExportService>();
@@ -155,7 +157,7 @@ app.MapGet("/api/setup/generate-recovery-key", () =>
     return Results.Ok(new { recoveryKey = KeyManager.GenerateRecoveryKey() });
 });
 
-app.MapPost("/api/setup/init", (InitRequest req, HttpContext context, KeyManager km, DatabaseContext db, LocalSessions sessions) =>
+app.MapPost("/api/setup/init", (InitRequest req, HttpContext context, KeyManager km, DatabaseContext db, LocalSessions sessions, AutomaticBackupWorker automaticBackup) =>
 {
     if (km.IsInitialized)
         return Results.BadRequest(new { error = "Die Anwendung ist bereits eingerichtet." });
@@ -185,12 +187,15 @@ app.MapPost("/api/setup/init", (InitRequest req, HttpContext context, KeyManager
     db.SaveSchulform(defaultSek2);
     db.EnsureRequestedSchoolProfiles();
 
+    automaticBackup.ResetSchedule();
+    automaticBackup.SetReady(true);
     sessions.Issue(context);
     return Results.Ok(new { success = true });
 });
 
-app.MapPost("/api/auth/unlock-pin", (PinUnlockRequest req, HttpContext context, KeyManager km, DatabaseContext db, LocalSessions sessions) =>
+app.MapPost("/api/auth/unlock-pin", (PinUnlockRequest req, HttpContext context, KeyManager km, DatabaseContext db, LocalSessions sessions, AutomaticBackupWorker automaticBackup) =>
 {
+    automaticBackup.SetReady(false);
     if (!km.IsInitialized)
         return Results.BadRequest(new { error = "Anwendung noch nicht eingerichtet." });
 
@@ -203,12 +208,14 @@ app.MapPost("/api/auth/unlock-pin", (PinUnlockRequest req, HttpContext context, 
     sessions.RevokeAll(context);
     try { db.InitializeDatabase(); db.MigrateLegacyPlaintext(); db.EnsureRequestedSchoolProfiles(); }
     catch { km.Lock(); return Results.Problem("Die Datenmigration konnte nicht abgeschlossen werden.", statusCode: 500); }
+    automaticBackup.SetReady(true);
     sessions.Issue(context);
     return Results.Ok(new { success = true, message = msg });
 });
 
-app.MapPost("/api/auth/unlock-recovery", (RecoveryUnlockRequest req, HttpContext context, KeyManager km, DatabaseContext db, LocalSessions sessions) =>
+app.MapPost("/api/auth/unlock-recovery", (RecoveryUnlockRequest req, HttpContext context, KeyManager km, DatabaseContext db, LocalSessions sessions, AutomaticBackupWorker automaticBackup) =>
 {
+    automaticBackup.SetReady(false);
     if (!km.IsInitialized)
         return Results.BadRequest(new { error = "Anwendung noch nicht eingerichtet." });
 
@@ -219,6 +226,7 @@ app.MapPost("/api/auth/unlock-recovery", (RecoveryUnlockRequest req, HttpContext
     sessions.RevokeAll(context);
     try { db.InitializeDatabase(); db.MigrateLegacyPlaintext(); db.EnsureRequestedSchoolProfiles(); }
     catch { km.Lock(); return Results.Problem("Die Datenmigration konnte nicht abgeschlossen werden.", statusCode: 500); }
+    automaticBackup.SetReady(true);
     sessions.Issue(context);
     return Results.Ok(new { success = true, message = msg });
 });
@@ -290,8 +298,9 @@ app.MapPost("/api/auth/unlock-hello", () => Results.Problem(
         catch { return Results.BadRequest(new { error = "Geräteanmeldung ist nicht eingerichtet." }); }
     });
 
-    app.MapPost("/api/auth/hello/unlock/complete", async (HelloAssertionRequest request, HttpContext context, HelloCeremonies hello, KeyManager km, DatabaseContext db, LocalSessions sessions) =>
+    app.MapPost("/api/auth/hello/unlock/complete", async (HelloAssertionRequest request, HttpContext context, HelloCeremonies hello, KeyManager km, DatabaseContext db, LocalSessions sessions, AutomaticBackupWorker automaticBackup) =>
     {
+        automaticBackup.SetReady(false);
         if (!CorrectHelloOrigin(context)) return Results.BadRequest(new { error = "Ungültige Adresse." });
         byte[]? prf = null;
         try
@@ -303,6 +312,7 @@ app.MapPost("/api/auth/unlock-hello", () => Results.Problem(
             sessions.RevokeAll(context);
             try { db.InitializeDatabase(); db.MigrateLegacyPlaintext(); db.EnsureRequestedSchoolProfiles(); }
             catch { km.Lock(); return Results.Problem("Die Datenmigration konnte nicht abgeschlossen werden.", statusCode: 500); }
+            automaticBackup.SetReady(true);
             sessions.Issue(context);
             return Results.Ok(new { success = true });
         }
@@ -311,8 +321,9 @@ app.MapPost("/api/auth/unlock-hello", () => Results.Problem(
     });
 }
 
-app.MapPost("/api/auth/lock", (HttpContext context, KeyManager km, LocalSessions sessions) =>
+app.MapPost("/api/auth/lock", (HttpContext context, KeyManager km, LocalSessions sessions, AutomaticBackupWorker automaticBackup) =>
 {
+    automaticBackup.SetReady(false);
     km.Lock();
     sessions.RevokeAll(context);
     return Results.Ok(new { success = true });
@@ -530,8 +541,10 @@ app.MapGet("/api/klausuren/{id}", (DatabaseContext db, string id) =>
 
 app.MapPost("/api/klausuren", (CreateExamRequest req, DatabaseContext db) =>
 {
-    if (req.Tasks == null || req.Tasks.Count == 0 || req.Tasks.Any(t => t.MaxPoints <= 0))
-        return Results.BadRequest(new { error = "Mindestens eine Aufgabe mit positiver Höchstpunktzahl ist erforderlich." });
+    if (req.Tasks == null || req.Tasks.Count == 0 || req.Tasks.Any(t => t.MaxPoints <= 0 || t.MaxPoints != decimal.Truncate(t.MaxPoints)))
+        return Results.BadRequest(new { error = "Mindestens eine Aufgabe mit positiver ganzzahliger Höchstpunktzahl ist erforderlich." });
+    if (req.Tasks.Sum(t => t.MaxPoints) != 100m)
+        return Results.BadRequest(new { error = "Die Höchstpunkte aller Aufgaben müssen zusammen genau 100 Punkte ergeben." });
     var cls = db.GetClassById(req.ClassId);
     if (cls == null) return Results.BadRequest(new { error = "Klasse nicht gefunden." });
 
@@ -594,6 +607,10 @@ app.MapPost("/api/klausuren/{id}/entries", (string id, List<ExamStudentEntry> en
             e.TaskPoints.Any(p => !exam.Tasks.Any(t => t.TaskNumber == p.Key &&
                 (!p.Value.HasValue || (p.Value.Value >= 0 && p.Value.Value <= t.MaxPoints))))))
         return Results.BadRequest(new { error = "Ungültige Schülerliste oder ungültige Punkte-, Wort- oder Fehlerzahl." });
+
+    if (entries.Any(e => e.TaskPoints.Any(p => p.Value.HasValue && p.Value.Value != decimal.Truncate(p.Value.Value) &&
+        (!exam.StudentEntries.Single(original => original.StudentId == e.StudentId).TaskPoints.TryGetValue(p.Key, out var previous) || previous != p.Value))))
+        return Results.BadRequest(new { error = "Erreichte Aufgabenpunkte müssen ganze Zahlen sein." });
 
     var updatedEntries = exam.StudentEntries.Select(original =>
     {
@@ -687,11 +704,26 @@ app.MapGet("/api/backups", (BackupService backupService) =>
     return Results.Ok(list);
 });
 
-app.MapPost("/api/backups/create", (BackupCreateRequest req, BackupService backupService) =>
+app.MapGet("/api/backups/automatic/status", (BackupService backupService, AutomaticBackupWorker worker, KeyManager km) =>
+{
+    var latest = backupService.GetManagedBackups().FirstOrDefault(b => b.FileName.StartsWith("klausurfix_automatisch_", StringComparison.Ordinal));
+    var settings = km.GetAutomaticBackupSettings();
+    return Results.Ok(new { settings.Enabled, settings.IntervalHours, lastBackup = latest?.CreatedAt, error = worker.Error });
+});
+
+app.MapPut("/api/backups/automatic/settings", (AutomaticBackupSettingsRequest request, BackupService backupService, KeyManager km) =>
+{
+    if (request.Enabled is null || request.IntervalHours is not (6 or 12 or 24 or 168))
+        return Results.BadRequest(new { error = "Bitte ein gültiges Sicherungsintervall auswählen." });
+    backupService.ExecuteExclusive(() => km.SetAutomaticBackupSettings(request.Enabled.Value, request.IntervalHours.Value));
+    return Results.Ok(new { enabled = request.Enabled.Value, intervalHours = request.IntervalHours.Value });
+});
+
+app.MapPost("/api/backups/create", (BackupService backupService) =>
 {
     try
     {
-        var info = backupService.CreateManagedBackup(req.RecoveryKey);
+        var info = backupService.CreateManagedBackup();
         return Results.Ok(info);
     }
     catch (Exception ex)
@@ -700,11 +732,11 @@ app.MapPost("/api/backups/create", (BackupCreateRequest req, BackupService backu
     }
 });
 
-app.MapPost("/api/backups/download", (BackupCreateRequest req, BackupService backupService) =>
+app.MapPost("/api/backups/download", (BackupService backupService) =>
 {
     try
     {
-        var bytes = backupService.CreateBackupBytes(req.RecoveryKey);
+        var bytes = backupService.CreateBackupBytes();
         var fileName = $"klausurfix_backup_{DateTime.UtcNow:yyyyMMdd_HHmmss}.kfbak";
         return Results.File(bytes, "application/octet-stream", fileName);
     }
@@ -766,13 +798,15 @@ app.MapPost("/api/settings/danger/delete-all-backups", (DangerActionRequest req,
     return Results.Ok(new { success = true, deletedCount = count, message = $"{count} Sicherungen wurden gelöscht." });
 });
 
-app.MapPost("/api/settings/danger/full-reset", (DangerActionRequest req, KeyManager km, CleanupService cleanup) =>
+app.MapPost("/api/settings/danger/full-reset", (DangerActionRequest req, KeyManager km, CleanupService cleanup, AutomaticBackupWorker automaticBackup) =>
 {
     var (success, msg, _) = km.UnlockWithPin(req.Pin);
     if (!success)
         return Results.BadRequest(new { error = "Falsche PIN. Vollständiges Zurücksetzen abgebrochen." });
 
+    automaticBackup.SetReady(false);
     cleanup.FullReset();
+    automaticBackup.ResetSchedule();
     return Results.Ok(new { success = true, message = "Anwendung wurde vollständig zurückgesetzt." });
 });
 
@@ -789,7 +823,7 @@ public record HelloRegistrationRequest(string Token, AuthenticatorAttestationRaw
 public record HelloAssertionRequest(string Token, AuthenticatorAssertionRawResponse Credential, string Prf);
 public record ChangePinRequest(string OldPin, string NewPin);
 public record TimeoutRequest(int TimeoutMinutes);
-public record BackupCreateRequest(string RecoveryKey);
+public record AutomaticBackupSettingsRequest(bool? Enabled, int? IntervalHours);
 public record BackupRestoreRequest(string RecoveryKey);
 public record BackupFileRestoreRequest(string RecoveryKey, string DataBase64);
 public record DangerActionRequest(string Pin);

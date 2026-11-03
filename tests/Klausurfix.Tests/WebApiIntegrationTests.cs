@@ -16,6 +16,84 @@ using Xunit;
 
 public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>, IDisposable
 {
+    [Fact]
+    public async Task ManualBackups_CreateAndDownloadWithoutRecoveryKeyButRestoreRequiresIt()
+    {
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _client.PostAsync("/api/backups/create", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _client.PostAsync("/api/backups/download", null)).StatusCode);
+        var recovery = KeyManager.GenerateRecoveryKey();
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/setup/init", new { pin = "123456", recoveryKey = recovery })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsync("/api/backups/create", null)).StatusCode);
+        var response = await _client.PostAsync("/api/backups/download", null);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var bytes = await response.Content.ReadAsByteArrayAsync();
+        var envelope = JsonSerializer.Deserialize<Klausurfix.Infrastructure.Backup.BackupEnvelope>(bytes)!;
+        Assert.Equal(2, envelope.FormatVersion);
+        var backups = await _client.GetFromJsonAsync<List<Klausurfix.Infrastructure.Backup.ManagedBackupInfo>>("/api/backups");
+        var saved = Assert.Single(backups!);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsJsonAsync($"/api/backups/{saved.FileName}/restore", new { recoveryKey = KeyManager.GenerateRecoveryKey() })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync($"/api/backups/{saved.FileName}/restore", new { recoveryKey = recovery })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/backups/restore-file", new { recoveryKey = recovery, dataBase64 = Convert.ToBase64String(bytes) })).StatusCode);
+        await _client.PostAsync("/api/auth/lock", null);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _client.PostAsync("/api/backups/create", null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task AutomaticBackupSettings_RequireSessionAndValidateAndPersist()
+    {
+        const string url = "/api/backups/automatic/settings";
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _client.PutAsJsonAsync(url, new { enabled = false, intervalHours = 6 })).StatusCode);
+        var recovery = KeyManager.GenerateRecoveryKey();
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/setup/init", new { pin = "123456", recoveryKey = recovery })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PutAsJsonAsync(url, new { enabled = false, intervalHours = 1 })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PutAsJsonAsync(url, new { intervalHours = 6 })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PutAsJsonAsync(url, new { enabled = false, intervalHours = 168 })).StatusCode);
+        var status = await _client.GetFromJsonAsync<JsonElement>("/api/backups/automatic/status");
+        Assert.False(status.GetProperty("enabled").GetBoolean());
+        Assert.Equal(168, status.GetProperty("intervalHours").GetInt32());
+        await _client.PostAsync("/api/auth/lock", null);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/auth/unlock-pin", new { pin = "123456" })).StatusCode);
+        status = await _client.GetFromJsonAsync<JsonElement>("/api/backups/automatic/status");
+        Assert.False(status.GetProperty("enabled").GetBoolean());
+        Assert.Equal(168, status.GetProperty("intervalHours").GetInt32());
+    }
+
+    [Fact]
+    public async Task TaskPoints_RequireIntegersButPreserveExistingDecimals()
+    {
+        var recovery = KeyManager.GenerateRecoveryKey();
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/setup/init", new
+        { pin = "123456", recoveryKey = recovery, inactivityTimeoutMinutes = 15 })).StatusCode);
+        var db = _factory.Services.GetRequiredService<DatabaseContext>();
+        var school = db.GetSchulformen().First();
+        var cls = new ClassGroup { Name = "Testklasse", SchulformId = school.Id, SchulformName = school.Name };
+        db.SaveClass(cls);
+        var invalidExam = await _client.PostAsJsonAsync("/api/klausuren", new
+        { classId = cls.Id, title = "Test", date = "2026-11-01", tasks = new[] { new { name = "A", maxPoints = 10.5m } } });
+        Assert.Equal(HttpStatusCode.BadRequest, invalidExam.StatusCode);
+        foreach (var total in new[] { 99, 100, 101 })
+        {
+            var response = await _client.PostAsJsonAsync("/api/klausuren", new
+            { classId = cls.Id, title = "Punktesumme", date = "2026-11-01", tasks = new[] { new { name = "A", maxPoints = 40 }, new { name = "B", maxPoints = total - 40 } } });
+            Assert.Equal(total == 100 ? HttpStatusCode.OK : HttpStatusCode.BadRequest, response.StatusCode);
+            if (total == 100) Assert.Equal(100m, (await response.Content.ReadFromJsonAsync<Exam>())!.TotalMaxPoints);
+        }
+
+        var exam = new Exam { ClassId = cls.Id, ClassName = cls.Name, SchulformId = school.Id, SchulformName = school.Name,
+            Title = "Test", Tasks = new() { new(1, "A", 10m) }, GradingProfileSnapshot = school.Profile,
+            StudentEntries = new() { new() { StudentId = "synthetisch", StudentName = "Test", TaskPoints = new() { [1] = 7.25m } } } };
+        db.SaveExam(exam);
+        var entry = exam.StudentEntries[0];
+        var url = $"/api/klausuren/{exam.Id}/entries";
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync(url, new[] { entry with { WordCount = 200 } })).StatusCode);
+        Assert.Equal(7.25m, db.GetExamById(exam.Id)!.StudentEntries[0].TaskPoints[1]);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsJsonAsync(url,
+            new[] { entry with { TaskPoints = new() { [1] = 7.5m } } })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync(url,
+            new[] { entry with { TaskPoints = new() { [1] = 8m } } })).StatusCode);
+        Assert.Equal(8m, db.GetExamById(exam.Id)!.StudentEntries[0].TaskPoints[1]);
+    }
+
     private readonly WebApplicationFactory<Program> _factory;
     private readonly string _testDir;
     private readonly HttpClient _client;
@@ -495,8 +573,8 @@ public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Progra
             date = "2026-11-01",
             tasks = new[]
             {
-                new { name = "Aufgabe 1", maxPoints = 20.0m },
-                new { name = "Aufgabe 2", maxPoints = 30.0m }
+                new { name = "Aufgabe 1", maxPoints = 40.0m },
+                new { name = "Aufgabe 2", maxPoints = 60.0m }
             }
         });
         Assert.Equal(HttpStatusCode.OK, examRes.StatusCode);
@@ -509,7 +587,7 @@ public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Progra
         var entry = exam.StudentEntries[0];
         var updatedEntry = entry with
         {
-            TaskPoints = new() { { 1, 18.0m }, { 2, 27.0m } }, // 45 / 50 -> 90%
+            TaskPoints = new() { { 1, 36.0m }, { 2, 54.0m } }, // 90 / 100 -> 90%
             WordCount = 500,
             ErrorCount = 5, // FQ = 1.0 -> 0 deduction
             Status = StudentExamStatus.Graded

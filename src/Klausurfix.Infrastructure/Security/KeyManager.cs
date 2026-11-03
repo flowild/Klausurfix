@@ -19,6 +19,8 @@ public class KeyEnvelope
     public uint HelloSignCount { get; set; } = 0;
     public HelloKeyEnvelope? HelloKey { get; set; }
     public int InactivityTimeoutMinutes { get; set; } = 15;
+    public bool AutomaticBackupEnabled { get; set; } = true;
+    public int AutomaticBackupIntervalHours { get; set; } = 24;
     public int FailedPinAttempts { get; set; } = 0;
     public DateTimeOffset? LockedUntilUtc { get; set; } = null;
 }
@@ -111,7 +113,28 @@ public class KeyManager
         }
     }
 
-    public byte[] GetActiveDek()
+    public (bool Enabled, int IntervalHours) GetAutomaticBackupSettings()
+    {
+        lock (_lock)
+        {
+            var env = GetEnvelopeInternal() ?? throw new InvalidOperationException("Anwendung ist noch nicht eingerichtet.");
+            return (env.AutomaticBackupEnabled, env.AutomaticBackupIntervalHours);
+        }
+    }
+
+    public void SetAutomaticBackupSettings(bool enabled, int intervalHours)
+    {
+        if (intervalHours is not (6 or 12 or 24 or 168)) throw new ArgumentOutOfRangeException(nameof(intervalHours));
+        lock (_lock)
+        {
+            var env = GetEnvelopeInternal() ?? throw new InvalidOperationException("Anwendung ist noch nicht eingerichtet.");
+            env.AutomaticBackupEnabled = enabled;
+            env.AutomaticBackupIntervalHours = intervalHours;
+            SaveEnvelopeInternal(env);
+        }
+    }
+
+    public byte[] GetActiveDek(bool recordActivity = true)
     {
         lock (_lock)
         {
@@ -120,8 +143,19 @@ public class KeyManager
             {
                 throw new InvalidOperationException("Anwendung ist gesperrt. Bitte zuerst mit PIN oder Windows Hello entsperren.");
             }
-            RecordActivity();
+            if (recordActivity) RecordActivity();
             return (byte[])_activeDek.Clone();
+        }
+    }
+
+    public (byte[] Dek, string RecoverySalt, string RecoveryWrappedDek) GetBackupKeyMaterial()
+    {
+        lock (_lock)
+        {
+            CheckInactivityTimeout();
+            if (_activeDek == null) throw new InvalidOperationException("Anwendung ist gesperrt.");
+            var env = GetEnvelopeInternal() ?? throw new InvalidOperationException("Schlüsselhülle fehlt.");
+            return ((byte[])_activeDek.Clone(), env.MasterSalt, env.EncryptedDekWithRecovery);
         }
     }
 

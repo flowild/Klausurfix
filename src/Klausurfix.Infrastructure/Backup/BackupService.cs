@@ -31,12 +31,17 @@ public class BackupEnvelope
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public string Salt { get; set; } = string.Empty;
     public string EncryptedPayload { get; set; } = string.Empty;
+    public string? RecoverySalt { get; set; }
+    public string? RecoveryWrappedDek { get; set; }
 }
 
 public class BackupService
 {
     private readonly DatabaseContext _dbContext;
     private readonly KeyManager _keyManager;
+    private readonly object _automaticGate = new();
+
+    public void ExecuteExclusive(Action action) { lock (_automaticGate) action(); }
 
     public BackupService(DatabaseContext dbContext, KeyManager keyManager)
     {
@@ -69,30 +74,7 @@ public class BackupService
             throw new UnauthorizedAccessException("Der Wiederherstellungsschlüssel ist nicht korrekt.");
 
         // 1. Gather all data
-        var payload = new BackupPayload
-        {
-            Version = 4, // Includes archive state and editable cover-sheet notices.
-            CreatedAt = DateTimeOffset.UtcNow,
-            Schulformen = _dbContext.GetSchulformen(includeArchived: true),
-            Classes = _dbContext.GetClasses(includeArchived: true)
-        };
-
-        foreach (var cls in payload.Classes)
-        {
-            var students = _dbContext.GetStudentsByClass(cls.Id, includeArchived: true);
-            payload.Students.AddRange(students);
-        }
-
-        var exams = _dbContext.GetExams(includeArchived: true);
-        foreach (var ex in exams)
-        {
-            var fullExam = _dbContext.GetExamById(ex.Id);
-            if (fullExam != null)
-            {
-                payload.Exams.Add(fullExam);
-            }
-        }
-
+        var payload = _dbContext.WithSnapshot(BuildPayload);
         var payloadJson = JsonSerializer.Serialize(payload);
         var payloadBytes = Encoding.UTF8.GetBytes(payloadJson);
 
@@ -117,21 +99,93 @@ public class BackupService
         return Encoding.UTF8.GetBytes(envelopeJson);
     }
 
+    private static BackupPayload BuildPayload(DatabaseContext db)
+    {
+        var payload = new BackupPayload
+        {
+            Version = 4, // Includes archive state and editable cover-sheet notices.
+            CreatedAt = DateTimeOffset.UtcNow,
+            Schulformen = db.GetSchulformen(includeArchived: true),
+            Classes = db.GetClasses(includeArchived: true)
+        };
+
+        foreach (var cls in payload.Classes)
+        {
+            var students = db.GetStudentsByClass(cls.Id, includeArchived: true);
+            payload.Students.AddRange(students);
+        }
+
+        var exams = db.GetExams(includeArchived: true);
+        foreach (var ex in exams)
+        {
+            var fullExam = db.GetExamById(ex.Id);
+            if (fullExam != null)
+            {
+                payload.Exams.Add(fullExam);
+            }
+        }
+
+        return payload;
+    }
+
+    private static readonly byte[] AutomaticBackupInfo = Encoding.UTF8.GetBytes("Klausurfix automatic backup v2");
+
+    public ManagedBackupInfo CreateAutomaticBackup()
+    {
+        lock (_automaticGate) return WriteManagedBackup(CreateBackupBytesCore(), "automatisch");
+    }
+
+    public byte[] CreateBackupBytes()
+    {
+        lock (_automaticGate) return CreateBackupBytesCore();
+    }
+
+    private byte[] CreateBackupBytesCore()
+    {
+        var (dek, recoverySalt, wrappedDek) = _keyManager.GetBackupKeyMaterial();
+        byte[]? key = null;
+        byte[]? payloadBytes = null;
+        try
+        {
+            payloadBytes = JsonSerializer.SerializeToUtf8Bytes(_dbContext.WithSnapshot(BuildPayload));
+            var salt = CryptoService.GenerateRandomBytes(CryptoService.SaltSize);
+            key = HKDF.DeriveKey(HashAlgorithmName.SHA256, dek, CryptoService.KeySize, salt, AutomaticBackupInfo);
+            var encrypted = CryptoService.Encrypt(payloadBytes, key);
+            var envelope = new BackupEnvelope { FormatVersion = 2, Salt = Convert.ToBase64String(salt),
+                RecoverySalt = recoverySalt, RecoveryWrappedDek = wrappedDek, EncryptedPayload = Convert.ToBase64String(encrypted) };
+            // Verify authentication before committing a file.
+            var verified = CryptoService.Decrypt(encrypted, key);
+            CryptoService.ZeroMemory(verified);
+            return JsonSerializer.SerializeToUtf8Bytes(envelope);
+        }
+        finally { CryptoService.ZeroMemory(dek); if (key != null) CryptoService.ZeroMemory(key); if (payloadBytes != null) CryptoService.ZeroMemory(payloadBytes); }
+    }
+
     /// <summary>
     /// Creates and saves a managed backup into AppPaths.BackupsDirectory.
     /// Uses atomic write (writes to temp file, then moves).
     /// </summary>
-    public ManagedBackupInfo CreateManagedBackup(string recoveryKey)
+    public ManagedBackupInfo CreateManagedBackup()
+    {
+        lock (_automaticGate) return WriteManagedBackup(CreateBackupBytesCore(), "backup");
+    }
+
+    private static ManagedBackupInfo WriteManagedBackup(byte[] backupBytes, string kind)
     {
         AppPaths.EnsureDirectoriesExist();
-        var backupBytes = CreateBackupBytes(recoveryKey);
         var timeStamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss");
-        var fileName = $"klausurfix_backup_{timeStamp}_{Guid.NewGuid():N}.kfbak";
+        var fileName = $"klausurfix_{kind}_{timeStamp}_{Guid.NewGuid():N}.kfbak";
         var finalPath = Path.Combine(AppPaths.BackupsDirectory, fileName);
         var tempPath = Path.Combine(AppPaths.BackupsDirectory, $"{fileName}.tmp");
 
-        File.WriteAllBytes(tempPath, backupBytes);
-        File.Move(tempPath, finalPath, overwrite: false);
+        try
+        {
+            File.WriteAllBytes(tempPath, backupBytes);
+            if (!CryptographicOperations.FixedTimeEquals(File.ReadAllBytes(tempPath), backupBytes))
+                throw new IOException("Die Sicherungsdatei konnte nicht geprüft werden.");
+            File.Move(tempPath, finalPath, overwrite: false);
+        }
+        finally { if (File.Exists(tempPath)) File.Delete(tempPath); }
 
         var fi = new FileInfo(finalPath);
         return new ManagedBackupInfo
@@ -160,15 +214,27 @@ public class BackupService
         if (envelope.Magic != "KLAUSURFIX_BACKUP")
             throw new InvalidOperationException("Die Datei ist keine gültige Klausurfix-Sicherung.");
 
-        if (envelope.FormatVersion > 1)
+        if (envelope.FormatVersion is < 1 or > 2)
             throw new InvalidOperationException($"Nicht unterstützte Sicherungsformatversion: {envelope.FormatVersion}.");
 
         // 2. Decrypt payload
         var salt = Convert.FromBase64String(envelope.Salt);
-        var key = CryptoService.DeriveKey(recoveryKey.Trim().ToUpperInvariant(), salt);
+        byte[]? key = null;
         byte[] decryptedBytes;
         try
         {
+            if (envelope.FormatVersion == 1) key = CryptoService.DeriveKey(recoveryKey.Trim().ToUpperInvariant(), salt);
+            else
+            {
+                var recoveryKek = CryptoService.DeriveKey(recoveryKey.Trim().ToUpperInvariant(), Convert.FromBase64String(envelope.RecoverySalt!));
+                byte[]? backupDek = null;
+                try
+                {
+                    backupDek = CryptoService.Decrypt(Convert.FromBase64String(envelope.RecoveryWrappedDek!), recoveryKek);
+                    key = HKDF.DeriveKey(HashAlgorithmName.SHA256, backupDek, CryptoService.KeySize, salt, AutomaticBackupInfo);
+                }
+                finally { CryptoService.ZeroMemory(recoveryKek); if (backupDek != null) CryptoService.ZeroMemory(backupDek); }
+            }
             var packedEncrypted = Convert.FromBase64String(envelope.EncryptedPayload);
             decryptedBytes = CryptoService.Decrypt(packedEncrypted, key);
         }
@@ -178,7 +244,7 @@ public class BackupService
         }
         finally
         {
-            CryptoService.ZeroMemory(key);
+            if (key != null) CryptoService.ZeroMemory(key);
         }
 
         // 3. Deserialize and validate payload

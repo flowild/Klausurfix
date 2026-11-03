@@ -11,6 +11,95 @@ using Microsoft.Data.Sqlite;
 public class KeyManagerAndBackupTests : IDisposable
 {
     [Fact]
+    public void AutomaticBackup_RestoresAfterNewSetupAndRejectsWrongKeyAndTampering()
+    {
+        var originalRecovery = KeyManager.GenerateRecoveryKey();
+        _keyManager.Setup("123456", originalRecovery);
+        _dbContext.InitializeDatabase();
+        var school = new Schulform { Name = "Synthetisch Äöü", Profile = GradingProfile.FachschuleSozialwesen() };
+        _dbContext.SaveSchulform(school);
+        var file = _backupService.CreateAutomaticBackup();
+        var bytes = File.ReadAllBytes(Path.Combine(AppPaths.BackupsDirectory, file.FileName));
+        Assert.DoesNotContain("Synthetisch", System.Text.Encoding.UTF8.GetString(bytes));
+        var damaged = JsonSerializer.Deserialize<BackupEnvelope>(bytes)!;
+        var ciphertext = Convert.FromBase64String(damaged.EncryptedPayload);
+        ciphertext[^1] ^= 1;
+        damaged.EncryptedPayload = Convert.ToBase64String(ciphertext);
+        Assert.Throws<UnauthorizedAccessException>(() => _backupService.RestoreBackup(JsonSerializer.SerializeToUtf8Bytes(damaged), originalRecovery));
+        Assert.Throws<UnauthorizedAccessException>(() => _backupService.RestoreBackup(bytes, KeyManager.GenerateRecoveryKey()));
+        Assert.Contains(_dbContext.GetSchulformen(), s => s.Name == school.Name);
+        _keyManager.Lock();
+        Assert.Throws<InvalidOperationException>(() => _backupService.CreateAutomaticBackup());
+        _keyManager.Setup("654321", KeyManager.GenerateRecoveryKey());
+        _dbContext.InitializeDatabase();
+        _backupService.RestoreBackup(bytes, originalRecovery);
+        Assert.Contains(_dbContext.GetSchulformen(), s => s.Name == school.Name);
+    }
+
+    [Fact]
+    public void AutomaticBackupSchedule_SkipsLockedAndDoesNotRepeatWithinOneDay()
+    {
+        var worker = new AutomaticBackupWorker(_backupService, _keyManager);
+        Assert.False(worker.RunIfDue());
+        _keyManager.Setup("123456", KeyManager.GenerateRecoveryKey());
+        _dbContext.InitializeDatabase();
+        worker.SetReady(true);
+        _keyManager.SetAutomaticBackupSettings(false, 6);
+        Assert.False(worker.RunIfDue());
+        Assert.Empty(_backupService.GetManagedBackups());
+        var reloaded = new KeyManager(new TestKeyProtector());
+        Assert.Equal((false, 6), reloaded.GetAutomaticBackupSettings());
+        _keyManager.SetAutomaticBackupSettings(true, 24);
+        Assert.True(worker.RunIfDue());
+        Assert.False(worker.RunIfDue());
+        Assert.Single(_backupService.GetManagedBackups());
+        _backupService.DeleteAllManagedBackups();
+        Assert.False(worker.RunIfDue());
+        _keyManager.Lock();
+        Assert.False(worker.RunIfDue());
+    }
+
+    [Fact]
+    public void LargeDataset_WithUnicode_RestoresClassesStudentsAndExams()
+    {
+        var recovery = KeyManager.GenerateRecoveryKey();
+        _keyManager.Setup("123456", recovery);
+        _dbContext.InitializeDatabase();
+        var school = new Schulform { Name = "Schulform ÄÖÜ ß & < >", Profile = GradingProfile.FachschuleSozialwesen() };
+        _dbContext.SaveSchulform(school);
+        const int classCount = 20, studentCount = 30, examsPerClass = 4;
+        for (int c = 0; c < classCount; c++)
+        {
+            var cls = new ClassGroup { Name = $"Klässe {c} Ö", SchulformId = school.Id, SchulformName = school.Name };
+            _dbContext.SaveClass(cls);
+            var entries = new List<ExamStudentEntry>();
+            for (int s = 0; s < studentCount; s++)
+            {
+                var student = new Student { ClassId = cls.Id, FirstName = "Änne", LastName = $"Öztürk ß {s}", OrderIndex = s };
+                _dbContext.SaveStudent(student);
+                entries.Add(new ExamStudentEntry { StudentId = student.Id, StudentName = student.FullName,
+                    Status = StudentExamStatus.Graded, TaskPoints = new() { [1] = 7.5m }, WordCount = 200, ErrorCount = 2 });
+            }
+            for (int e = 0; e < examsPerClass; e++)
+                _dbContext.SaveExam(new Exam { ClassId = cls.Id, ClassName = cls.Name, SchulformId = school.Id,
+                    SchulformName = school.Name, Title = $"Prüfung {c}-{e} Ä & Ö", Tasks = new() { new(1, "Übung", 10m) },
+                    GradingProfileSnapshot = school.Profile, StudentEntries = entries });
+        }
+        var backup = _backupService.CreateBackupBytes(recovery);
+        Assert.DoesNotContain("Öztürk", System.Text.Encoding.UTF8.GetString(backup));
+        _backupService.RestoreBackup(backup, recovery);
+        var classes = _dbContext.GetClasses();
+        Assert.Equal(classCount, classes.Count);
+        Assert.Equal(classCount * studentCount, classes.Sum(c => _dbContext.GetStudentsByClass(c.Id).Count));
+        var exams = _dbContext.GetExams();
+        Assert.Equal(classCount * examsPerClass, exams.Count);
+        var restored = _dbContext.GetExamById(exams[0].Id)!;
+        Assert.Equal(studentCount, restored.StudentEntries.Count);
+        Assert.Contains("Öztürk ß", restored.StudentEntries[0].StudentName);
+        Assert.Contains("Prüfung", restored.Title);
+    }
+
+    [Fact]
     public async Task HelloRegistrationAndUnlockRequireValidSignedResponses()
     {
         _keyManager.Setup("123456", KeyManager.GenerateRecoveryKey());

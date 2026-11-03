@@ -65,7 +65,7 @@ Beide Notenskalen werden benötigt. Die folgenden Stufen gelten jeweils ab der g
 ### Klausuren
 
 - Titel, Datum, Klasse, Aufgabenanzahl und maximale Punkte pro Aufgabe erfassen.
-- Gesamtpunktzahl aus den Aufgaben berechnen; Aufgabenanzahl und Einzelaufgaben müssen übereinstimmen.
+- Gesamtpunktzahl aus den Aufgaben berechnen; bei neu angelegten Klausuren müssen die Höchstpunkte zusammen genau 100 ergeben. Bestehende Klausuren mit abweichender Gesamtpunktzahl unverändert erhalten; Aufgabenanzahl und Einzelaufgaben müssen übereinstimmen.
 - Schülerliste, Bewertungsprofil, Notenschlüssel und Regeln für die jeweilige Klausur versioniert festhalten. Spätere Änderungen an Stammdaten dürfen bestehende Auswertungen nicht stillschweigend ändern.
 - Änderungen am Bewertungsprofil einer bestehenden Klausur nur als bewusste, nachvollziehbare Neuberechnung erlauben.
 - Pro Schüler und Aufgabe erreichte Punkte erfassen; zusätzlich Wortanzahl und Anzahl der Rechtschreibfehler pro Schüler und Klausur.
@@ -90,7 +90,7 @@ Beide Notenskalen werden benötigt. Die folgenden Stufen gelten jeweils ab der g
 - Festgelegte Formel: Fehlerquotient = (Rechtschreibfehler × 100) / Wortanzahl.
 - Wortanzahl und Fehleranzahl sind nichtnegative ganze Zahlen. Wortanzahl null oder fehlend ergibt keinen berechenbaren Fehlerquotienten und darf nicht als null gewertet werden.
 - Beispiel: 12 Fehler und 600 Wörter ergeben einen Fehlerquotienten von 2.
-- Punkte müssen zwischen null und der jeweiligen Aufgabenhöchstpunktzahl liegen. Dezimale Punkte technisch ermöglichen; erlaubte Schrittweite bleibt konfigurierbar bzw. fachlich zu klären.
+- Neu eingegebene erreichte Punkte und Aufgabenhöchstpunkte sind ganze Zahlen; erreichte Punkte liegen zwischen null und der jeweiligen Höchstpunktzahl. Bereits gespeicherte dezimale Aufgabenpunkte unverändert erhalten. Prozentuale Abzüge und bereinigte Punkte dürfen weiterhin dezimal sein.
 - Rohpunkte, Ausgangsnote, Fehlerquotient, zutreffenden Abzug und Endnote getrennt und nachvollziehbar darstellen. Bei direktem Noten-/Notenpunktabzug zuerst die Ausgangsnote bestimmen und dann den Abzug anwenden. Bei prozentualem Punkteabzug zuerst die Punkte bereinigen und daraus die Endnote bestimmen; Abzugsprozentsatz, Abzugspunkte und bereinigte Punkte zusätzlich anzeigen.
 - Für Grenzvergleiche keine vorab gerundeten Anzeigewerte verwenden. Dezimalarithmetik bzw. exakte Vergleiche einsetzen, damit Grenzwerte stabil bleiben.
 - Anzeigepräzision und fachliche Rundung getrennt festlegen. Noch keine willkürliche Rundungsregel verbindlich machen.
@@ -209,10 +209,10 @@ Der vorhandene Sites-Skill liegt derzeit unter `C:/Users/flowi/.codex/plugins/ca
 ## Noch offene fachliche Entscheidungen
 
 - Beide Notenskalen sind festgelegt: 0–15 für Berufliches Gymnasium und 1–6 für Fachschule Sozialwesen. Noch offen sind die konkreten Prozent-/Punktgrenzen der jeweiligen Notenschlüssel.
-- Welche Rundungsregeln und welche Schrittweite für Aufgabenpunkte gelten?
+- Welche fachlichen Rundungsregeln gelten?
 - Sind zusätzliche Grenzen für den Abzug gewünscht, beispielsweise maximal eine Note oder maximal zwei Notenpunkte unabhängig von der Tabelle?
 - Gewünschte Inaktivitätsdauer, PIN-Mindestlänge und genaue Einrichtung des Wiederherstellungsschlüssels.
-- Manuelle Sicherungen sind vorgesehen; automatische Häufigkeit und Aufbewahrung sind noch nicht festgelegt.
+- Automatische Sicherungen in den Einstellungen ein- und ausschaltbar machen und das Intervall einstellbar halten (voreingestellt täglich). Bei laufender, entsperrter App erstellen und fällige Sicherungen nach dem Entsperren nachholen. Automatische und manuelle Sicherungen bis zur ausdrücklichen Löschung erhalten und Status sowie Fehler anzeigen.
 
 Diese Punkte bei späterer Umsetzung gezielt klären oder klar als änderbare Vorschläge darstellen. Die Planung dieser Datei wird dadurch nicht blockiert.
 

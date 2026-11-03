@@ -10,6 +10,35 @@ using DocumentFormat.OpenXml.Wordprocessing;
 
 public class ExportTests
 {
+    [Theory]
+    [InlineData(150, 5)]
+    [InlineData(40, 20)]
+    public void LargeReports_PreserveUnicodeAndAllStudentRows(int students, int tasks)
+    {
+        var sample = CreateSampleExam();
+        var exam = sample with
+        {
+            Title = "Prüfung ÄÖÜ ß & <Test>", ClassName = "Klässe Ü",
+            Tasks = Enumerable.Range(1, tasks).Select(i => new TaskDefinition(i, $"Aufgabe {i}", 10m)).ToList(),
+            StudentEntries = Enumerable.Range(1, students).Select(i => new ExamStudentEntry
+            {
+                StudentId = $"synthetic-{i}", StudentName = $"Änne Öztürk ß {i}",
+                Status = StudentExamStatus.Graded, WordCount = 200, ErrorCount = 2,
+                TaskPoints = Enumerable.Range(1, tasks).ToDictionary(n => n, _ => (decimal?)7.5m)
+            }).ToList()
+        };
+        var pdf = new PdfExportService().GenerateExamReport(exam);
+        Assert.StartsWith("%PDF-", Encoding.ASCII.GetString(pdf.Take(5).ToArray()));
+        using var stream = new MemoryStream(new DocxExportService().GenerateExamDocument(exam));
+        using var document = WordprocessingDocument.Open(stream, false);
+        Assert.Empty(new OpenXmlValidator().Validate(document));
+        var text = document.MainDocumentPart!.Document!.Body!.InnerText;
+        Assert.Contains(exam.Title, text);
+        Assert.Contains(exam.ClassName, text);
+        Assert.Contains($"Änne Öztürk ß {students}", text);
+        Assert.Equal(students + 1, document.MainDocumentPart.Document.Body.Elements<Table>().First().Elements<TableRow>().Count());
+    }
+
     [Fact]
     public void Docx_GradeDistributionIsHorizontalAndIncludesTheRules()
     {

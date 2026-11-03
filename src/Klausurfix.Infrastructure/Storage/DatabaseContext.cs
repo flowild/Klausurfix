@@ -16,6 +16,7 @@ public sealed class ArchivedExamReadOnlyException : InvalidOperationException
 public class DatabaseContext
 {
     private readonly KeyManager _keyManager;
+    private readonly string? _snapshotConnectionString;
     private record StoredEntry(Dictionary<int, decimal?> TaskPoints, int? WordCount, int? ErrorCount, StudentExamStatus Status);
     private static string ProtectEntry(ExamStudentEntry entry, byte[] key, string examId) => Protect(
         JsonSerializer.Serialize(new StoredEntry(entry.TaskPoints, entry.WordCount, entry.ErrorCount, entry.Status)),
@@ -26,10 +27,30 @@ public class DatabaseContext
         _keyManager = keyManager;
     }
 
+    private DatabaseContext(KeyManager keyManager, string connectionString)
+    {
+        _keyManager = keyManager;
+        _snapshotConnectionString = connectionString;
+    }
+
+    public T WithSnapshot<T>(Func<DatabaseContext, T> read)
+    {
+        var connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = "klausurfix-snapshot-" + Guid.NewGuid().ToString("N"),
+            Mode = SqliteOpenMode.Memory, Cache = SqliteCacheMode.Shared, Pooling = false
+        }.ToString();
+        using var source = CreateConnection();
+        using var snapshot = new SqliteConnection(connectionString);
+        snapshot.Open();
+        source.BackupDatabase(snapshot);
+        return read(new DatabaseContext(_keyManager, connectionString));
+    }
+
     private SqliteConnection CreateConnection()
     {
         AppPaths.EnsureDirectoriesExist();
-        var connStr = new SqliteConnectionStringBuilder
+        var connStr = _snapshotConnectionString ?? new SqliteConnectionStringBuilder
         {
             DataSource = AppPaths.DatabaseFile,
             Mode = SqliteOpenMode.ReadWriteCreate,
@@ -134,7 +155,7 @@ public class DatabaseContext
             throw new InvalidOperationException("Ungültige Sicherungsdaten.");
         if (validateProfiles) foreach (var sf in payload.Schulformen) sf.Profile.Validate();
         foreach (var exam in payload.Exams) exam.CoverSheet?.Validate(exam);
-        var dek = _keyManager.GetActiveDek();
+        var dek = _keyManager.GetActiveDek(_snapshotConnectionString == null);
         using var conn = CreateConnection();
         using var transaction = conn.BeginTransaction();
         void Execute(string sql, params (string Name, object? Value)[] args)
@@ -189,7 +210,7 @@ public class DatabaseContext
     // decoded exclusively inside the transactional field migration.
     public void MigrateLegacyPlaintext()
     {
-        var dek = _keyManager.GetActiveDek();
+        var dek = _keyManager.GetActiveDek(_snapshotConnectionString == null);
         try
         {
             using var connection = CreateConnection();
@@ -221,7 +242,7 @@ public class DatabaseContext
 
     public List<Schulform> GetSchulformen(bool includeArchived = false)
     {
-        var dek = _keyManager.GetActiveDek();
+        var dek = _keyManager.GetActiveDek(_snapshotConnectionString == null);
         var list = new List<Schulform>();
 
         using var conn = CreateConnection();
@@ -257,7 +278,7 @@ public class DatabaseContext
 
     public Schulform? GetSchulformById(string id)
     {
-        var dek = _keyManager.GetActiveDek();
+        var dek = _keyManager.GetActiveDek(_snapshotConnectionString == null);
         using var conn = CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT id, name, profile_json_enc, is_archived, created_at FROM schulformen WHERE id = $id;";
@@ -287,7 +308,7 @@ public class DatabaseContext
     public void SaveSchulform(Schulform schulform)
     {
         schulform.Profile.Validate();
-        var dek = _keyManager.GetActiveDek();
+        var dek = _keyManager.GetActiveDek(_snapshotConnectionString == null);
         var profJson = JsonSerializer.Serialize(schulform.Profile);
         var profEnc = Protect(profJson, dek, "schulformen", "profile_json_enc", schulform.Id);
 
@@ -343,7 +364,7 @@ ON CONFLICT(id) DO UPDATE SET
 
     public List<ClassGroup> GetClasses(bool includeArchived = false)
     {
-        var dek = _keyManager.GetActiveDek();
+        var dek = _keyManager.GetActiveDek(_snapshotConnectionString == null);
         var list = new List<ClassGroup>();
         using var conn = CreateConnection();
         using var cmd = conn.CreateCommand();
@@ -370,7 +391,7 @@ ON CONFLICT(id) DO UPDATE SET
 
     public ClassGroup? GetClassById(string id)
     {
-        var dek = _keyManager.GetActiveDek();
+        var dek = _keyManager.GetActiveDek(_snapshotConnectionString == null);
         using var conn = CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT id, name, schulform_id, schulform_name, is_archived, created_at FROM classes WHERE id = $id;";
@@ -392,7 +413,7 @@ ON CONFLICT(id) DO UPDATE SET
 
     public void SaveClass(ClassGroup classGroup)
     {
-        var dek = _keyManager.GetActiveDek();
+        var dek = _keyManager.GetActiveDek(_snapshotConnectionString == null);
         using var conn = CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
@@ -446,7 +467,7 @@ ON CONFLICT(id) DO UPDATE SET
 
     public List<Student> GetStudentsByClass(string classId, bool includeArchived = false)
     {
-        var dek = _keyManager.GetActiveDek();
+        var dek = _keyManager.GetActiveDek(_snapshotConnectionString == null);
         var list = new List<Student>();
 
         using var conn = CreateConnection();
@@ -485,7 +506,7 @@ ON CONFLICT(id) DO UPDATE SET
 
     public void SaveStudent(Student student)
     {
-        var dek = _keyManager.GetActiveDek();
+        var dek = _keyManager.GetActiveDek(_snapshotConnectionString == null);
         var fnEnc = Protect(student.FirstName, dek, "students", "first_name_enc", student.Id);
         var lnEnc = Protect(student.LastName, dek, "students", "last_name_enc", student.Id);
 
@@ -542,7 +563,7 @@ ON CONFLICT(id) DO UPDATE SET
 
     public List<Exam> GetExams(bool includeArchived = false)
     {
-        var dek = _keyManager.GetActiveDek();
+        var dek = _keyManager.GetActiveDek(_snapshotConnectionString == null);
         var list = new List<Exam>();
         using var conn = CreateConnection();
         using var cmd = conn.CreateCommand();
@@ -592,7 +613,7 @@ ON CONFLICT(id) DO UPDATE SET
 
     public Exam? GetExamById(string id)
     {
-        var dek = _keyManager.GetActiveDek();
+        var dek = _keyManager.GetActiveDek(_snapshotConnectionString == null);
         using var conn = CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"SELECT id, class_id, class_name, schulform_id, schulform_name, title, date, tasks_json,
@@ -689,7 +710,7 @@ ON CONFLICT(id) DO UPDATE SET
     public void SaveExam(Exam exam)
     {
         exam.CoverSheet?.Validate(exam);
-        var dek = _keyManager.GetActiveDek();
+        var dek = _keyManager.GetActiveDek(_snapshotConnectionString == null);
         var tasksJson = Protect(JsonSerializer.Serialize(exam.Tasks), dek, "exams", "tasks_json", exam.Id);
         var profJson = Protect(JsonSerializer.Serialize(exam.GradingProfileSnapshot), dek, "exams", "profile_snapshot_json", exam.Id);
 

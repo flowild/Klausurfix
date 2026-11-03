@@ -21,6 +21,11 @@ public class CleanupService
     /// </summary>
     public void ClearActiveApplicationData()
     {
+        _backupService.ExecuteExclusive(ClearActiveApplicationDataCore);
+    }
+
+    private void ClearActiveApplicationDataCore()
+    {
         // Re-initialize empty database
         if (File.Exists(AppPaths.DatabaseFile))
         {
@@ -42,9 +47,9 @@ public class CleanupService
     /// </summary>
     public int DeleteAllManagedBackups()
     {
-        var backups = _backupService.GetManagedBackups();
-        _backupService.DeleteAllManagedBackups();
-        return backups.Count;
+        var count = 0;
+        _backupService.ExecuteExclusive(() => { count = _backupService.GetManagedBackups().Count; _backupService.DeleteAllManagedBackups(); });
+        return count;
     }
 
     /// <summary>
@@ -52,6 +57,11 @@ public class CleanupService
     /// Returns the app to the initial setup state.
     /// </summary>
     public void FullReset()
+    {
+        _backupService.ExecuteExclusive(FullResetCore);
+    }
+
+    private void FullResetCore()
     {
         _keyManager.Lock();
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();

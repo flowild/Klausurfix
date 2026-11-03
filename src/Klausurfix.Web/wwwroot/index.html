@@ -313,8 +313,9 @@
 
           <div style="background-color: var(--primary-light); padding: 1rem; border-radius: var(--radius-md); margin-top: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
             <span style="font-weight: 600; color: var(--primary);">Gesamtpunktzahl:</span>
-            <span id="newExamTotalPoints" style="font-size: 1.3rem; font-weight: 800; color: var(--primary);">0 P</span>
+            <span id="newExamTotalPoints" role="status" aria-live="polite" style="font-size: 1.3rem; font-weight: 800; color: var(--primary);">0 / 100 P</span>
           </div>
+          <p id="newExamPointsHint">Die Höchstpunkte aller Aufgaben müssen zusammen genau 100 Punkte ergeben.</p>
 
           <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1.5rem; height: 48px;">
             Klausur anlegen
@@ -503,8 +504,26 @@
           <p class="card-subtitle">
             Sicherungen werden lokal im App-Datenordner verschlüsselt gespeichert und können exportiert werden.
           </p>
+          <section class="backup-section" aria-labelledby="automaticBackupHeading">
+          <h3 id="automaticBackupHeading" class="backup-section-title">Automatische Sicherung</h3>
+          <form id="automaticBackupForm" class="backup-settings-form">
+            <label class="backup-toggle"><input type="checkbox" id="automaticBackupEnabled"> Automatische Sicherung einschalten</label>
+            <div class="form-group">
+              <label for="automaticBackupInterval" class="form-label">Sicherungsintervall</label>
+              <select id="automaticBackupInterval" class="form-control">
+                <option value="6">Alle 6 Stunden</option><option value="12">Alle 12 Stunden</option>
+                <option value="24">Täglich</option><option value="168">Wöchentlich</option>
+              </select>
+            </div>
+            <button class="btn btn-secondary" type="submit">Sicherungseinstellungen speichern</button>
+          </form>
+          <p id="automaticBackupStatus" class="backup-status" role="status">Sicherungseinstellungen werden geladen.</p>
+          <p class="backup-help">Fällige Sicherungen werden bei laufender und entsperrter Anwendung erstellt.</p>
+          </section>
 
-          <div style="margin-top: 1rem; display: flex; gap: 0.75rem;">
+          <section class="backup-section" aria-labelledby="manualBackupHeading">
+          <h3 id="manualBackupHeading" class="backup-section-title">Sicherung erstellen oder wiederherstellen</h3>
+          <div class="backup-actions">
             <button type="button" class="btn btn-primary" id="openCreateBackupModalBtn">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
               Sicherung erstellen
@@ -515,10 +534,14 @@
             <button type="button" class="btn btn-secondary" id="restoreFileBtn">Sicherungsdatei wiederherstellen</button>
             <input type="file" id="restoreFileInput" accept=".kfbak" hidden>
           </div>
+          </section>
 
           <!-- Managed Backups Table -->
-          <div class="table-responsive" style="margin-top: 1.5rem;">
-            <table class="data-table">
+          <section class="backup-section" aria-labelledby="savedBackupsHeading">
+          <h3 id="savedBackupsHeading" class="backup-section-title">Gespeicherte Sicherungen</h3>
+          <p class="backup-help">Vorhandene Sicherungen bleiben bis zum Löschen erhalten.</p>
+          <div class="table-responsive backup-table-container">
+            <table class="data-table backup-table">
               <thead>
                 <tr>
                   <th>Dateiname</th>
@@ -532,6 +555,7 @@
               </tbody>
             </table>
           </div>
+          </section>
         </div>
       </div>
 

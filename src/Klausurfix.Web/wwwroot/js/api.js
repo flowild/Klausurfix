@@ -207,11 +207,19 @@ export const api = {
   getBackups() {
     return this.request("/api/backups");
   },
-  createBackup(recoveryKey) {
+  getAutomaticBackupStatus() {
+    return this.request("/api/backups/automatic/status");
+  },
+  setAutomaticBackupSettings(enabled, intervalHours) {
+    return this.request("/api/backups/automatic/settings", { method: "PUT", body: JSON.stringify({ enabled, intervalHours }) });
+  },
+  createBackup() {
     return this.request("/api/backups/create", {
-      method: "POST",
-      body: JSON.stringify({ recoveryKey })
+      method: "POST"
     });
+  },
+  downloadBackup() {
+    return this.request("/api/backups/download", { method: "POST" });
   },
   restoreBackup(fileName, recoveryKey) {
     return this.request(`/api/backups/${encodeURIComponent(fileName)}/restore`, {
