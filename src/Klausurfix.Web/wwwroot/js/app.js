@@ -1470,7 +1470,7 @@ async function loadBackupsTable() {
         <td>${(b.fileSizeBytes / 1024).toFixed(1)} KB</td>
         <td class="backup-action-cell"><div class="backup-row-actions">
           <button class="btn btn-secondary btn-sm restore-backup-btn" data-file="${escapeHtml(b.fileName)}">Wiederherstellen</button>
-          <button class="btn btn-secondary btn-sm delete-backup-btn" data-file="${escapeHtml(b.fileName)}" aria-label="Sicherung ${escapeHtml(b.fileName)} löschen">Löschen</button>
+          <button class="btn btn-secondary btn-sm delete-backup-btn" data-file="${escapeHtml(b.fileName)}" aria-label="Sicherung ${escapeHtml(b.fileName)} löschen" title="Sicherung löschen">&times;</button>
         </div>
         </td>
       `;
