@@ -17,6 +17,7 @@ Entwickelt für den Betrieb auf einem **Microsoft Surface Pro** unter Windows.
 - **Flexible Schulformen & Bewertungsprofile:**
   - Wahlweise **Schulnoten (1–6)** oder **Oberstufen-Notenpunkte (0–15)**.
   - Frei definierbare Fehlerquotient-Abzugstabelle: Stufen ab Grenze einschließlich bis zur nächsten Grenze ausschließlich.
+  - Die Eingabetabelle zeigt nach Eingabe der Wortanzahl die erste Fehlerzahl jeder Abzugsstufe des gespeicherten Klausurprofils mit passender Einheit an, zum Beispiel „24: -1 NP“.
   - Prozentualer Notenschlüssel mit exakter Grenzprüfung ohne Vorab-Rundung.
 - **Klausur-Snapshotting:** Jede Klausur friert ihr Regelwerk und ihre Schülerliste bei Erstellung ein. Spätere Stammdatenänderungen verändern historische Klausuren niemals stillschweigend.
 - **Klausurarchiv:** Klausuren können aus der Übersicht archiviert und im separaten Archiv geöffnet oder wiederhergestellt werden. Im Archiv sind Klausuren samt Deckblatt schreibgeschützt; nach dem Wiederherstellen lassen sie sich wieder bearbeiten. Archivierte Klausuren bleiben mit ihren Ergebnissen und Deckblättern Bestandteil der verschlüsselten Sicherungen.

@@ -7,6 +7,34 @@ using Xunit;
 public class ExamCalculatorTests
 {
     [Fact]
+    public void ErrorThresholds_UseWholeErrorsAndExamProfileEvenBeforeGrading()
+    {
+        var profile = GradingProfile.BeruflichesGymnasium();
+        Assert.Equal(new[] {
+            new ErrorThresholdRange(0, 17, 0), new ErrorThresholdRange(18, 35, 1),
+            new ErrorThresholdRange(36, null, 2)
+        }, ExamCalculator.CalculateErrorThresholds(600, profile));
+        Assert.Equal(new[] {
+            new ErrorThresholdRange(0, 0, 0), new ErrorThresholdRange(1, 1, 1),
+            new ErrorThresholdRange(2, null, 2)
+        }, ExamCalculator.CalculateErrorThresholds(20, profile));
+        Assert.Empty(ExamCalculator.CalculateErrorThresholds(0, profile));
+        Assert.Empty(ExamCalculator.CalculateErrorThresholds(null, profile));
+    }
+
+    [Fact]
+    public void ErrorThresholds_SkipUnreachableStagesAndRespectCap()
+    {
+        var profile = GradingProfile.BeruflichesGymnasium() with { MaxDeduction = 1m };
+        Assert.Equal(new[] { new ErrorThresholdRange(0, 0, 0), new ErrorThresholdRange(1, null, 1) },
+            ExamCalculator.CalculateErrorThresholds(10, profile));
+        var percent = GradingProfile.FachschuleSozialwesen();
+        Assert.Equal(new[] { new ErrorThresholdRange(0, 1, 0), new ErrorThresholdRange(2, 3, 1),
+            new ErrorThresholdRange(4, 5, 3), new ErrorThresholdRange(6, null, 6) },
+            ExamCalculator.CalculateErrorThresholds(100, percent));
+    }
+
+    [Fact]
     public void MaximumDeduction_IsTrueOnlyForCompleteResultsAtTheConfiguredMaximum()
     {
         var exam = new Exam { Tasks = new() { new TaskDefinition(1, "A", 100m) },

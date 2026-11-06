@@ -549,6 +549,14 @@ body {
   color: var(--gray-700);
 }
 
+.matrix-table td.row-error-thresholds {
+  min-width: 100px;
+  white-space: nowrap;
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
 .final-grade-cell {
   background-color: var(--primary-light);
   color: var(--primary);

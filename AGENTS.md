@@ -2,7 +2,7 @@
 
 ## Arbeitsstand und Auftrag
 
-- Stand: 1. November 2026. Eine lokale Anwendung mit Klausurarchiv und Deckblatterstellung ist vorhanden. Der tatsächliche Implementierungsstand und noch ausstehende Prüfungen sind vor Änderungen im Code und in der README zu prüfen.
+- Stand: 6. November 2026. Eine lokale Anwendung mit Klausurarchiv, Deckblatterstellung und Fehlerschwellen in der Eingabetabelle ist vorhanden. Der tatsächliche Implementierungsstand und noch ausstehende Prüfungen sind vor Änderungen im Code und in der README zu prüfen.
 - PIN und Verschlüsselung sind Anforderungen der Anwendung. Windows Hello soll mit verpflichtender Benutzerverifikation implementiert werden; die Funktion darf für die Prüfung auf dem Surface freigeschaltet werden. Ein noch ausstehender Hardwaretest ist klar zu benennen.
 - Bei ausdrücklichem Implementierungsauftrag innerhalb dieses Umfangs selbstständig weiterarbeiten. Routineentscheidungen treffen; nur fachlich notwendige offene Punkte klären.
 - Mit der Nutzerin bzw. dem Nutzer auf Deutsch kommunizieren. Die Oberfläche und Dokumente sind deutschsprachig.
@@ -69,6 +69,7 @@ Beide Notenskalen werden benötigt. Die folgenden Stufen gelten jeweils ab der g
 - Schülerliste, Bewertungsprofil, Notenschlüssel und Regeln für die jeweilige Klausur versioniert festhalten. Spätere Änderungen an Stammdaten dürfen bestehende Auswertungen nicht stillschweigend ändern.
 - Änderungen am Bewertungsprofil einer bestehenden Klausur nur als bewusste, nachvollziehbare Neuberechnung erlauben.
 - Pro Schüler und Aufgabe erreichte Punkte erfassen; zusätzlich Wortanzahl und Anzahl der Rechtschreibfehler pro Schüler und Klausur.
+- Nach Eingabe einer positiven Wortanzahl die Fehlerschwellen des gespeicherten Klausurprofils in der Eingabetabelle anzeigen: je erreichbarer Stufe die erste ganze Fehlerzahl und den Abzug, etwa „24: -1 NP“. Den anfänglichen Bereich ohne Abzug auslassen; eine spätere Stufe ohne Abzug anzeigen. Einheit und gegebenenfalls Abzugsbegrenzung dynamisch aus dem Profil übernehmen. Die Anzeige zentrieren und auch bei unvollständigen oder archivierten Einträgen bereitstellen.
 - Eingaben automatisch lokal speichern und den Speicherstatus anzeigen. Ungespeicherte Eingaben dürfen nicht als gespeichert erscheinen.
 - Klausuren in einer eigenen Archivansicht anzeigen und als archiviert kennzeichnen. Archivierte Klausuren einschließlich Eingabetabelle, Bewertung und Deckblatt sind bis zur Wiederherstellung schreibgeschützt; dies auch im Backend durchsetzen. Lesen und Export bleiben möglich. Archivstatus und Deckblätter in Sicherungen erhalten.
 
@@ -196,6 +197,7 @@ Der vorhandene Sites-Skill liegt derzeit unter `C:/Users/flowi/.codex/plugins/ca
 
 - Fachlogik: Quotient, null Wörter, null Fehler, exakte Stufengrenzen, direkt darüber/darunter, alle drei Abzugsarten, Notengrenzen, Dezimalpunkte, fehlende Ergebnisse und Durchschnitt.
 - Nutzerprofile: Berufliches Gymnasium an FQ 3 und 6 mit 1 bzw. 2 Notenpunkten Abzug; Fachschule Sozialwesen an FQ 2, 4 und 6 mit 1 %, 3 % bzw. 6 % der maximalen Gesamtpunktzahl prüfen. Zusätzlich Werte direkt unter den Grenzen, nicht kumulierte Abzüge, unterschiedliche Gesamtpunktzahlen, dezimale Abzugspunkte und Begrenzung bei null testen.
+- Fehlerschwellen: Ganzzahlige Grenzen aus der Wortanzahl und dem Klausur-Snapshot prüfen, einschließlich zusammenfallender Stufen bei kleinen Wortzahlen, Abzugsbegrenzung und unterschiedlicher Abzugseinheiten.
 - Historie: Änderungen an Schulform, Klassenliste oder Notenschlüssel verändern frühere Klausuren nicht stillschweigend.
 - Datensicherheit: falsche PIN, Verzögerung bei Fehlversuchen, direkte API-Aufrufe im gesperrten Zustand, abgebrochenes Hello, wiederholte Challenge, falsche Origin, Inaktivität und Standby.
 - Verschlüsselung: Datenbank, Journale und Sicherungen enthalten keine personenbezogenen Klartexte; manipulierte verschlüsselte Daten werden abgewiesen.

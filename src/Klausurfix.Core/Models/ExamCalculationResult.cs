@@ -17,6 +17,7 @@ public record ExamCalculationResult
     public int? WordCount { get; init; }
     public int? ErrorCount { get; init; }
     public decimal? ErrorQuotient { get; init; }
+    public List<ErrorThresholdRange> ErrorThresholds { get; init; } = new();
 
     public decimal Deduction { get; init; } = 0.0m;
     public bool IsMaximumDeduction { get; init; }

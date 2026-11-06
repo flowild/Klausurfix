@@ -1158,6 +1158,7 @@ function renderMatrixTable(exam, entries) {
           <th class="calc-cell">%</th>
           <th class="calc-cell">Ausgangsnote</th>
           <th>Wörter</th>
+          <th class="calc-cell">Fehlerschwellen</th>
           <th>Fehler</th>
           <th class="calc-cell">FQ</th>
           <th class="calc-cell">Abzug</th>
@@ -1195,6 +1196,7 @@ function renderMatrixTable(exam, entries) {
           <input type="number" class="matrix-input row-words-cell" style="width: 70px;"
             value="${entry.wordCount !== null && entry.wordCount !== undefined ? entry.wordCount : ''}" placeholder="Wörter" min="0" ${readOnly}>
         </td>
+        <td class="calc-cell row-error-thresholds">Wörter eingeben</td>
         <td>
           <input type="number" class="matrix-input row-errors-cell" style="width: 60px;"
             value="${entry.errorCount !== null && entry.errorCount !== undefined ? entry.errorCount : ''}" placeholder="Fehler" min="0" ${readOnly}>
@@ -1220,10 +1222,12 @@ function renderMatrixTable(exam, entries) {
 
   table.querySelectorAll("tbody tr").forEach((tr, rowIdx) => {
     recalculateRow(tr, exam, entries[rowIdx]);
+    updateErrorThresholds(tr, exam, entries[rowIdx]);
 
     if (exam.isArchived) return;
     tr.querySelectorAll(".matrix-input, .row-status-select").forEach(input => {
       input.addEventListener("input", () => {
+        if (input.classList.contains("row-words-cell")) updateErrorThresholds(tr, exam, entries[rowIdx]);
         if (!collectRowData(tr, exam, entries[rowIdx])) {
           state.saveRevision = (state.saveRevision || 0) + 1;
           state.saveFailed = true;
@@ -1244,6 +1248,40 @@ function renderMatrixTable(exam, entries) {
       });
     });
   });
+}
+
+async function updateErrorThresholds(tr, exam, entry) {
+  const revision = (Number(tr.dataset.thresholdRevision) || 0) + 1;
+  tr.dataset.thresholdRevision = revision;
+  const cell = tr.querySelector(".row-error-thresholds");
+  const input = tr.querySelector(".row-words-cell");
+  const words = Number(input.value);
+  if (!input.value || !Number.isInteger(words) || words <= 0 || words > 2147483647) {
+    cell.textContent = "Wörter eingeben";
+    return;
+  }
+  cell.textContent = "Berechnung …";
+  try {
+    const result = await api.previewExamEntry(exam.id, { ...entry, wordCount: words });
+    if (!tr.isConnected || Number(tr.dataset.thresholdRevision) !== revision) return;
+    const unit = exam.gradingProfileSnapshot.deductionUnit === 1 ? " Noten" :
+      exam.gradingProfileSnapshot.deductionUnit === 2 ? " NP" : " %";
+    const ranges = result.errorThresholds.filter((range, index) => index !== 0 || range.deduction !== 0);
+    if (ranges.length === 0) {
+      cell.textContent = "Kein Abzug";
+      return;
+    }
+    cell.replaceChildren(...ranges.map(range => {
+      const line = document.createElement("div");
+      const deduction = formatNumber(range.deduction, 20);
+      line.textContent = `${formatNumber(range.minErrors, 0)}: ${range.deduction > 0 ? "-" : ""}${deduction}${unit}`;
+      line.title = `Ab ${formatNumber(range.minErrors, 0)} Fehlern: ${deduction}${unit} Abzug${exam.gradingProfileSnapshot.deductionUnit === 3 ? " der maximalen Gesamtpunkte" : ""}`;
+      return line;
+    }));
+  } catch {
+    if (tr.isConnected && Number(tr.dataset.thresholdRevision) === revision)
+      cell.textContent = "Schwellen nicht verfügbar";
+  }
 }
 
 function collectRowData(tr, exam, entry) {

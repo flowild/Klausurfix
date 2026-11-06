@@ -4,6 +4,26 @@ using Klausurfix.Core.Models;
 
 public static class ExamCalculator
 {
+    /// <summary>Ganzzahlige Fehlerbereiche für die gespeicherten FQ-Abzugsstufen.</summary>
+    public static List<ErrorThresholdRange> CalculateErrorThresholds(int? wordCount, GradingProfile profile)
+    {
+        if (wordCount is not > 0) return new();
+
+        var starts = new List<(decimal MinErrors, decimal Deduction)> { (0m, 0m) };
+        foreach (var tier in profile.DeductionTiers.OrderBy(t => t.Threshold))
+        {
+            // Ab der ersten ganzen Fehlerzahl, die die FQ-Grenze erreicht, gilt die Stufe.
+            // Fehlerzahlen werden als int gespeichert; größere Grenzen sind nicht erreichbar.
+            if (tier.Threshold > (decimal)int.MaxValue * 100m / wordCount.Value) break;
+            var minimum = decimal.Ceiling(tier.Threshold * wordCount.Value / 100m);
+            var deduction = profile.MaxDeduction.HasValue ? Math.Min(tier.Deduction, profile.MaxDeduction.Value) : tier.Deduction;
+            if (minimum == starts[^1].MinErrors) starts[^1] = (minimum, deduction);
+            else if (deduction != starts[^1].Deduction) starts.Add((minimum, deduction));
+        }
+
+        return starts.Select((start, i) => new ErrorThresholdRange(start.MinErrors,
+            i + 1 < starts.Count ? starts[i + 1].MinErrors - 1m : null, start.Deduction)).ToList();
+    }
     /// <summary>
     /// Calculates the Error Quotient (Fehlerquotient): (Rechtschreibfehler * 100) / Wortanzahl.
     /// Returns null if words is null, zero, or negative (as words=0 cannot produce a valid quotient).

@@ -626,7 +626,10 @@ app.MapPost("/api/klausuren/{id}/entries", (string id, List<ExamStudentEntry> en
 app.MapPost("/api/klausuren/{id}/preview-entry", (string id, ExamStudentEntry entry, DatabaseContext db) =>
 {
     var exam = db.GetExamById(id);
-    return exam == null ? Results.NotFound() : Results.Ok(ExamCalculator.CalculateStudentEntry(entry, exam));
+    return exam == null ? Results.NotFound() : Results.Ok(ExamCalculator.CalculateStudentEntry(entry, exam) with
+    {
+        ErrorThresholds = ExamCalculator.CalculateErrorThresholds(entry.WordCount, exam.GradingProfileSnapshot)
+    });
 });
 
 app.MapGet("/api/grading/defaults/{system:int}", (int system) =>
