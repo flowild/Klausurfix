@@ -19,7 +19,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             try { openBrowser(); }
             catch { MessageBox.Show("Klausurfix konnte nicht im Browser geöffnet werden.", "Klausurfix", MessageBoxButtons.OK, MessageBoxIcon.Error); }
         });
-        menu.Items.Add("Beenden", null, (_, _) => StopBackend());
+        menu.Items.Add("Beenden", null, (_, _) => StopBackend(openBrowser));
         _icon = new NotifyIcon { Icon = _image, Text = "Klausurfix", ContextMenuStrip = menu, Visible = true };
         _icon.DoubleClick += (_, _) => menu.Items[0].PerformClick();
         _timer = new System.Windows.Forms.Timer { Interval = 1000 };
@@ -27,20 +27,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _timer.Start();
     }
 
-    private void StopBackend()
+    private void StopBackend(Action openBrowser)
     {
-        if (MessageBox.Show("Bitte zuerst alle offenen Eingaben und Formulare in allen Klausurfix-Fenstern speichern. Nicht gespeicherte Änderungen können verloren gehen.\n\nKlausurfix jetzt beenden?",
-            "Klausurfix beenden", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
-        try
-        {
-            if (_backend.HasExited) { ExitThread(); return; }
-            using var stop = EventWaitHandle.OpenExisting($@"Local\KlausurfixShutdown-{_backend.Id}");
-            stop.Set();
-        }
-        catch (Exception)
-        {
-            MessageBox.Show("Der Dienst konnte nicht über das Tray beendet werden. Bitte in der Anwendung „Beenden“ wählen.", "Klausurfix", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
+        MessageBox.Show("Bitte Klausurfix in der Anwendung entsperren und dort „Beenden“ wählen. Dabei werden Eingaben gespeichert und eine Sicherung erstellt.",
+            "Klausurfix beenden", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        try { openBrowser(); }
+        catch { MessageBox.Show("Klausurfix konnte nicht im Browser geöffnet werden.", "Klausurfix", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
     protected override void Dispose(bool disposing)

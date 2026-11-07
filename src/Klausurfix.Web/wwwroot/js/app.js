@@ -337,9 +337,9 @@ document.getElementById("lockBtn").addEventListener("click", async () => {
 
 document.getElementById("shutdownBtn").addEventListener("click", async () => {
   try {
-    await flushPendingSave();
-    if (!confirm("Klausurfix jetzt beenden?")) return;
-    await api.shutdown();
+    if (!confirm("Klausurfix jetzt sichern und beenden? Bitte offene Formulare vorher speichern oder schließen.")) return;
+    showToast("Eingaben werden gespeichert und eine Sicherung erstellt …", "info");
+    await updateSave.request(roundId => api.shutdown(roundId), { shutdown: true });
     state.isUnlocked = false;
     state.activeExam = null;
     state.activeExamEntries = [];
@@ -1432,16 +1432,6 @@ const updateSave = createUpdateSaveCoordinator({
     await flushPendingSave();
   },
   report(message, error = false) { showToast(message, error ? "error" : "info"); }
-});
-document.getElementById("prepareUpdateSaveBtn").addEventListener("click", async event => {
-  const button = event.currentTarget;
-  button.disabled = true;
-  try {
-    showToast("Speicherung in geöffneten Tabs wird angefordert …", "info");
-    const { count } = await updateSave.request(roundId => api.createUpdateBackup(roundId));
-    showToast(`Eingaben in ${count} registrierten Ansicht(en) gespeichert und verschlüsselte Sicherung erstellt.`, "success");
-  } catch (err) { showToast(err.message || "Speichern nicht abgeschlossen.", "error"); }
-  finally { button.disabled = false; }
 });
 
 window.addEventListener("beforeunload", e => {

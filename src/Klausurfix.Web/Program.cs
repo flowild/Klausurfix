@@ -39,7 +39,6 @@ builder.Services.AddSingleton<DatabaseContext>();
 builder.Services.AddSingleton<BackupService>();
 builder.Services.AddSingleton<AutomaticBackupWorker>();
 builder.Services.AddHostedService(services => services.GetRequiredService<AutomaticBackupWorker>());
-builder.Services.AddHostedService<TrayShutdownWorker>();
 builder.Services.AddSingleton<CleanupService>();
 builder.Services.AddSingleton<PdfExportService>();
 builder.Services.AddSingleton<DocxExportService>();
@@ -100,7 +99,8 @@ app.Use(async (context, next) =>
     bool coordination = path == "/api/update/view/register" || path == "/api/update/view/poll" ||
         path == "/api/update/view/respond" || path == "/api/update/view/unregister" ||
         path == "/api/update/save-round/begin" || path == "/api/update/save-round/status" ||
-        path == "/api/update/save-round/cancel" || path == "/api/update/coordinated-backup";
+        path == "/api/update/save-round/cancel" || path == "/api/update/coordinated-backup" ||
+        path == "/api/application/shutdown";
     if (!context.Request.Path.StartsWithSegments("/api") || HttpMethods.IsGet(context.Request.Method) ||
         HttpMethods.IsHead(context.Request.Method) || HttpMethods.IsOptions(context.Request.Method) || coordination)
     {
@@ -162,16 +162,32 @@ app.UseStaticFiles(new StaticFileOptions
 // Used by the local launcher to distinguish this instance from another service.
 app.MapGet("/api/health", () => Results.Text("Klausurfix/1", "text/plain"));
 
-app.MapPost("/api/application/shutdown", (HttpContext context, KeyManager km, LocalSessions sessions, IHostApplicationLifetime lifetime) =>
+app.MapPost("/api/application/shutdown", async (UpdateRoundRequest request, UpdateViewRegistry views,
+    UpdatePreparation preparation, HttpContext context, KeyManager km, LocalSessions sessions, IHostApplicationLifetime lifetime) =>
 {
-    km.Lock();
-    sessions.RevokeAll(context);
-    context.Response.OnCompleted(() =>
+    void ValidateRound()
     {
-        lifetime.StopApplication();
-        return Task.CompletedTask;
-    });
-    return Results.Ok(new { success = true });
+        if (!views.Status(request.RoundId ?? "").Complete)
+            throw new InvalidOperationException("Die Speicherabstimmung ist unvollständig oder nicht mehr gültig.");
+    }
+    try
+    {
+        var prepared = await preparation.PrepareAsync(context.RequestAborted, ValidateRound);
+        km.Lock();
+        sessions.RevokeAll(context);
+        context.Response.OnCompleted(() =>
+        {
+            lifetime.StopApplication();
+            prepared.Dispose();
+            return Task.CompletedTask;
+        });
+        return Results.Ok(new { success = true });
+    }
+    catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException)
+    {
+        return Results.Json(new { error = "Die Sicherung konnte nicht erstellt werden. Klausurfix bleibt geöffnet." }, statusCode: 500);
+    }
 });
 
 app.MapGet("/api/setup/status", (HttpContext context, KeyManager km, LocalSessions sessions) =>

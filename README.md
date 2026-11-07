@@ -53,9 +53,9 @@ Beim Start wird nach Möglichkeit eine Desktop-Verknüpfung mit dem Klausurfix-I
 
 Für die Ausführung aus dem Quellordner wird das [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) benötigt. Auf einem Surface mit Snapdragon-Prozessor sollte die ARM64-Version installiert werden. Beim ersten Start und nach dem Wechsel von .NET 9 werden Projektabhängigkeiten eingerichtet; dafür kann eine Internetverbindung erforderlich sein. Nach erfolgreicher Einrichtung ist der Betrieb offline möglich. Startfehler werden in einem Dialog angezeigt.
 
-Mit **Beenden** in der Anwendung werden offene Eingaben gespeichert und der lokale Hintergrunddienst beendet. Anschließend kann der Browser-Tab geschlossen werden.
+Mit **Beenden** in der entsperrten Anwendung werden registrierte Ansichten zum Speichern aufgefordert und eine verschlüsselte Sicherung erstellt, bevor der lokale Hintergrunddienst beendet wird. Offene Formulare müssen zuvor gespeichert oder geschlossen werden. Schlägt die Speicherung oder Sicherung fehl, bleibt die Anwendung geöffnet. Die Registrierung erfasst nach einem Seiten-, Browser- oder Dienstneustart nicht nachweislich alle offenen Ansichten; bitte alle Fenster prüfen. Anschließend kann der Browser-Tab geschlossen werden.
 
-Solange der über `Klausurfix.exe` gestartete Dienst läuft, erscheint das Klausurfix-Symbol im Windows-Infobereich. Über das Rechtsklickmenü öffnet **Öffnen** die Anwendung erneut im Browser. **Beenden** beendet nach einer Bestätigung den Dienst; zuvor müssen offene Eingaben und Formulare in allen Fenstern selbst gespeichert werden. Das Tray-Menü speichert sie nicht automatisch. Nach dem Beenden verschwindet das Symbol.
+Solange der über `Klausurfix.exe` gestartete Dienst läuft, erscheint das Klausurfix-Symbol im Windows-Infobereich. Über das Rechtsklickmenü öffnet **Öffnen** die Anwendung erneut im Browser. **Beenden** öffnet die Anwendung mit dem Hinweis, sie dort gegebenenfalls zu entsperren und zu beenden. Nach dem Beenden verschwindet das Symbol.
 
 Das Tray-Symbol gehört zum Starter. Der neu entwickelte Update-Assistent tauscht auch den Starter aus, sodass Änderungen am Tray und am EXE-Icon mitgeliefert werden. Ältere, bereits gebaute Update-EXE-Dateien besitzen diese Funktion noch nicht.
 

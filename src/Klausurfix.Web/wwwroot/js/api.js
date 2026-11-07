@@ -67,8 +67,8 @@ export const api = {
   lock() {
     return this.request("/api/auth/lock", { method: "POST" });
   },
-  shutdown() {
-    return this.request("/api/application/shutdown", { method: "POST" });
+  shutdown(roundId) {
+    return this.request("/api/application/shutdown", { method: "POST", body: JSON.stringify({ roundId }) });
   },
   changePin(oldPin, newPin) {
     return this.request("/api/auth/change-pin", {

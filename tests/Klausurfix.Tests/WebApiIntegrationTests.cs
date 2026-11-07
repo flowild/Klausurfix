@@ -735,9 +735,16 @@ public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Progra
         var unlockedCheck = await _client.GetAsync("/api/klassen");
         Assert.Equal(HttpStatusCode.OK, unlockedCheck.StatusCode);
 
-        var shutdown = await _client.PostAsync("/api/application/shutdown", null);
+        var view = (await (await _client.PostAsync("/api/update/view/register", null)).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("viewId").GetString();
+        var round = (await (await _client.PostAsync("/api/update/save-round/begin", null)).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("roundId").GetString();
+        Assert.Equal(HttpStatusCode.Conflict, (await _client.PostAsJsonAsync("/api/application/shutdown", new { roundId = round })).StatusCode);
+        Assert.True(_factory.Services.GetRequiredService<KeyManager>().IsUnlocked);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/update/view/respond", new { viewId = view, roundId = round, saved = true })).StatusCode);
+        var shutdown = await _client.PostAsJsonAsync("/api/application/shutdown", new { roundId = round });
         Assert.Equal(HttpStatusCode.OK, shutdown.StatusCode);
         await shutdown.Content.ReadAsStringAsync();
+        var backups = _factory.Services.GetRequiredService<Klausurfix.Infrastructure.Backup.BackupService>().GetManagedBackups();
+        Assert.Contains(backups, b => b.FileName.StartsWith("klausurfix_update_", StringComparison.Ordinal));
         Assert.False(_factory.Services.GetRequiredService<KeyManager>().IsUnlocked);
         var stopping = _factory.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping;
         Assert.True(stopping.IsCancellationRequested || stopping.WaitHandle.WaitOne(TimeSpan.FromSeconds(2)));

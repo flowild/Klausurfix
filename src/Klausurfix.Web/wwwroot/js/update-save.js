@@ -39,7 +39,7 @@ export function createUpdateSaveCoordinator({ save, report, freeze }) {
     running = true;
     let saved = false;
     try {
-      report("Speicherung für ein mögliches Update wird angefordert …");
+      report("Speicherung vor dem Beenden wird angefordert …");
       unfreeze = freeze();
       freezeTimer = setTimeout(() => {
         releaseFreeze();
@@ -93,7 +93,7 @@ export function createUpdateSaveCoordinator({ save, report, freeze }) {
     }).catch(() => {});
   });
   return {
-    async request(afterSave) {
+    async request(afterSave, { shutdown = false } = {}) {
       if (currentRound) throw new Error("Eine Speicheraufforderung läuft bereits.");
       if (!viewId) throw new Error("Dieser Tab konnte noch nicht registriert werden. Bitte erneut versuchen.");
       const result = await post("/api/update/save-round/begin");
@@ -105,6 +105,7 @@ export function createUpdateSaveCoordinator({ save, report, freeze }) {
           if (status.failed) throw new Error("Eine Ansicht konnte nicht speichern oder die geöffneten Ansichten haben sich geändert.");
           if (status.complete) {
             const result = await afterSave(currentRound);
+            if (shutdown) return { count: status.expected, result };
             const checked = await post("/api/update/save-round/status", { roundId: currentRound });
             if (checked.failed || !checked.complete)
               throw new Error("Die Sicherung wurde erstellt, aber die Speicherabstimmung ist abgelaufen oder hat sich geändert. Bitte erneut versuchen.");
