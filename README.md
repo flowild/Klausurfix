@@ -41,15 +41,15 @@ Der Schutz hat Grenzen: SQLite-Struktur, IDs, Beziehungen, Datensatzzahlen, Sort
 
 ### 1. Starten
 
-Für die portable Version 0.1.2 das passende ZIP vollständig entpacken und `Klausurfix.vbs` starten: `win-arm64` für Windows auf ARM (z. B. Surface Pro 11), `win-x64` für Windows auf Intel-/AMD-Prozessoren. Die Laufzeit ist enthalten; es wird kein .NET SDK benötigt. Arbeitsdaten und verwaltete Sicherungen liegen weiterhin im lokalen Windows-Benutzerprofil unter `%LOCALAPPDATA%\Klausurfix` und werden nicht mit dem Programmordner verschickt. Die ARM64-Version und Windows Hello müssen auf dem Surface noch geprüft werden.
+Für die portable Version ab 0.1.4 das passende ZIP vollständig entpacken und `Klausurfix.exe` starten: `win-arm64` für Windows auf ARM (z. B. Surface Pro 11), `win-x64` für Windows auf Intel-/AMD-Prozessoren. Die Laufzeit ist enthalten; es wird kein .NET SDK benötigt. Arbeitsdaten und verwaltete Sicherungen liegen weiterhin im lokalen Windows-Benutzerprofil unter `%LOCALAPPDATA%\Klausurfix` und werden nicht mit dem Programmordner verschickt. Die ARM64-Version und Windows Hello müssen auf dem Surface noch geprüft werden.
 
-Zum Aktualisieren von 0.1 zunächst dort eine verschlüsselte Sicherung erstellen und die App mit **Beenden** schließen. Version 0.1.2 in einen eigenen Programmordner entpacken und daraus starten; vorhandene Arbeitsdaten werden beim Entsperren migriert. Die umgestellte Arbeitsdatenbank ist mit 0.1 nicht mehr lesbar. Eine bisherige Desktop-Verknüpfung verweist weiterhin auf den alten Programmordner und muss angepasst werden.
+Zum Aktualisieren von 0.1 zunächst dort eine verschlüsselte Sicherung erstellen und die App mit **Beenden** schließen. Die neue Version in einen eigenen Programmordner entpacken und daraus starten; vorhandene Arbeitsdaten werden beim Entsperren migriert. Die umgestellte Arbeitsdatenbank ist mit 0.1 nicht mehr lesbar. Eine bisherige Desktop-Verknüpfung verweist weiterhin auf den alten Programmordner und muss angepasst werden.
 
 Die Pakete lassen sich mit `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1` aus dem Quellcode erstellen; sie erscheinen unter `release/`. Die Lizenzbedingungen der mitgelieferten Komponenten liegen im Paket unter `Lizenzen`. Für QuestPDF ist im Code die Community-Lizenz eingestellt; deren Voraussetzungen sind für den jeweiligen Einsatz zu prüfen.
 
-Doppelklick auf `Klausurfix.vbs` startet den lokalen Hintergrunddienst ohne sichtbares Konsolenfenster und öffnet die Anwendung in Microsoft Edge. Wenn Edge nicht gefunden wird, öffnet sich der Standardbrowser. Ein weiterer Start verwendet die bereits laufende Instanz.
+Doppelklick auf `Klausurfix.exe` startet den lokalen Hintergrunddienst ohne sichtbares Konsolenfenster und öffnet die Anwendung in Microsoft Edge. Wenn Edge nicht gefunden wird, öffnet sich der Standardbrowser. Ein weiterer Start verwendet die bereits laufende Instanz derselben Programmversion. Eine andere laufende Version muss zunächst in der Anwendung beendet werden.
 
-Für eine Desktop-Verknüpfung einmalig `Verknuepfung-erstellen.vbs` doppelklicken. Die Verknüpfung verweist auf den aktuellen Programmordner; nach einem Verschieben des Ordners muss sie neu erstellt werden. Eine bereits vorhandene Verknüpfung gleichen Namens wird nicht überschrieben.
+Beim Start wird nach Möglichkeit eine Desktop-Verknüpfung erstellt. Die Verknüpfung verweist auf den aktuellen Programmordner; nach einem Verschieben des Ordners muss sie neu erstellt werden. Eine bereits vorhandene Verknüpfung gleichen Namens wird nicht überschrieben.
 
 Für die Ausführung aus dem Quellordner wird das [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) benötigt. Auf einem Surface mit Snapdragon-Prozessor sollte die ARM64-Version installiert werden. Beim ersten Start und nach dem Wechsel von .NET 9 werden Projektabhängigkeiten eingerichtet; dafür kann eine Internetverbindung erforderlich sein. Nach erfolgreicher Einrichtung ist der Betrieb offline möglich. Startfehler werden in einem Dialog angezeigt.
 
@@ -90,6 +90,8 @@ Deckblattdaten werden authentifiziert verschlüsselt gespeichert und in vollstä
 Automatische und neu erstellte manuelle Sicherungen verwenden Sicherungsformat 2: Aus dem zufälligen Datenschlüssel wird mit HKDF-SHA-256 und einem neuen Salt ein gesonderter Sicherungsschlüssel abgeleitet. Die Sicherung enthält zusätzlich den mit dem Wiederherstellungsschlüssel geschützten Datenschlüssel; das Wiederherstellungsgeheimnis selbst wird nicht gespeichert. Für das Erstellen und Herunterladen genügt die entsperrte Anwendung; zur Wiederherstellung ist der ursprüngliche Wiederherstellungsschlüssel nötig. Bei einer Neuinstallation kann die Datei damit geöffnet und unter dem neuen lokalen Datenschlüssel wiederhergestellt werden. Ältere App-Versionen können Format 2 nicht wiederherstellen. Frühere Sicherungen im Format 1 bleiben wiederherstellbar. Es wird ein konsistenter SQLite-Snapshot im Arbeitsspeicher erstellt und die verwaltete Datei vor atomarer Übernahme geprüft.
 
 ## Projektstruktur
+
+Die Grundlagen für spätere Offline-Updates liegen unter `update-entwicklung/`. Dort befinden sich Werkzeuge zum Erstellen und Prüfen signierter Pakete sowie die noch ausstehenden Schritte für eine sichere Installation. Das Backend kann bereits eine gesondert gekennzeichnete verschlüsselte Update-Sicherung aus einer authentifizierten Sitzung erstellen. Eine automatische Update-Installation und die Abstimmung offener Browser-Tabs sind noch nicht implementiert.
 
 ```
 Klausurfix/

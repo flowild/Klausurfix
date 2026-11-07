@@ -2,6 +2,7 @@ import { api } from "./api.js";
 import { registerHello, unlockHello } from "./hello.js";
 import { createCoverSheetEditor } from "./cover-sheet.js";
 import { showHamster, hideHamster } from "./hamster.js";
+import { createUpdateSaveCoordinator } from "./update-save.js";
 
 // Global App State
 const state = {
@@ -1394,7 +1395,54 @@ async function flushPendingSave() {
     throw new Error("Bitte ungültige Eingaben korrigieren.");
   if (state.saveAction) state.saveAction();
   if (state.pendingSave) await state.pendingSave;
+  if (state.saveFailed || state.saveAction || state.isSaving)
+    throw new Error("Nicht alle Eingaben konnten gespeichert werden.");
 }
+
+const updateSave = createUpdateSaveCoordinator({
+  freeze() {
+    if (!("inert" in HTMLElement.prototype)) throw new Error("Dieser Browser unterstützt die Eingabesperre nicht.");
+    const original = new Map();
+    const lockElement = element => {
+      if (element === overlay || original.has(element)) return;
+      original.set(element, element.inert);
+      element.inert = true;
+    };
+    const overlay = document.createElement("div");
+    overlay.className = "update-save-overlay";
+    overlay.setAttribute("role", "status");
+    overlay.textContent = "Eingaben werden für die Speicherung vorübergehend gesperrt …";
+    for (const child of document.body.children) lockElement(child);
+    document.body.appendChild(overlay);
+    const observer = new MutationObserver(() => {
+      for (const child of document.body.children) lockElement(child);
+    });
+    observer.observe(document.body, { childList: true });
+    return () => {
+      observer.disconnect();
+      for (const [element, inert] of original) element.inert = inert;
+      overlay.remove();
+    };
+  },
+  async save() {
+    if (!state.isUnlocked) throw new Error("Anwendung ist gesperrt.");
+    // These forms need an explicit submit and cannot safely be auto-saved.
+    if (document.querySelector("#modalContainer .modal-backdrop") || state.currentView === "klausurNeu" || state.currentView === "settings")
+      throw new Error("Bitte offene Formulare zuerst speichern oder schließen.");
+    await flushPendingSave();
+  },
+  report(message, error = false) { showToast(message, error ? "error" : "info"); }
+});
+document.getElementById("prepareUpdateSaveBtn").addEventListener("click", async event => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    showToast("Speicherung in geöffneten Tabs wird angefordert …", "info");
+    const { count } = await updateSave.request(() => api.createUpdateBackup());
+    showToast(`Eingaben in ${count} registrierten Ansicht(en) gespeichert und verschlüsselte Sicherung erstellt.`, "success");
+  } catch (err) { showToast(err.message || "Speichern nicht abgeschlossen.", "error"); }
+  finally { button.disabled = false; }
+});
 
 window.addEventListener("beforeunload", e => {
   if (state.saveAction || state.isSaving || state.saveFailed || document.querySelector('#scoreMatrix [aria-invalid="true"]')) { e.preventDefault(); e.returnValue = ""; }

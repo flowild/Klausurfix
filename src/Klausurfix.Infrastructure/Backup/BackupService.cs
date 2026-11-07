@@ -170,6 +170,12 @@ public class BackupService
         lock (_automaticGate) return WriteManagedBackup(CreateBackupBytesCore(), "backup");
     }
 
+    // Kept separate from shutdown: a future updater must first coordinate all browser tabs.
+    public ManagedBackupInfo CreateUpdateBackup()
+    {
+        lock (_automaticGate) return WriteManagedBackup(CreateBackupBytesCore(), "update");
+    }
+
     private static ManagedBackupInfo WriteManagedBackup(byte[] backupBytes, string kind)
     {
         AppPaths.EnsureDirectoriesExist();

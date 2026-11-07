@@ -218,6 +218,9 @@ export const api = {
       method: "POST"
     });
   },
+  createUpdateBackup() {
+    return this.request("/api/update/backup", { method: "POST" });
+  },
   downloadBackup() {
     return this.request("/api/backups/download", { method: "POST" });
   },

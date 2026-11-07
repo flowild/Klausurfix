@@ -2,7 +2,7 @@
 
 ## Arbeitsstand und Auftrag
 
-- Stand: 6. November 2026. Eine lokale Anwendung mit Klausurarchiv, Deckblatterstellung und Fehlerschwellen in der Eingabetabelle ist vorhanden. Der tatsächliche Implementierungsstand und noch ausstehende Prüfungen sind vor Änderungen im Code und in der README zu prüfen.
+- Stand: 7. November 2026. Eine lokale Anwendung mit Klausurarchiv, Deckblatterstellung und Fehlerschwellen in der Eingabetabelle ist vorhanden. Offline-Updates befinden sich in Entwicklung; es gibt noch keine benutzbare Update-EXE. Der tatsächliche Implementierungsstand und noch ausstehende Prüfungen sind vor Änderungen im Code und in der README zu prüfen.
 - PIN und Verschlüsselung sind Anforderungen der Anwendung. Windows Hello soll mit verpflichtender Benutzerverifikation implementiert werden; die Funktion darf für die Prüfung auf dem Surface freigeschaltet werden. Ein noch ausstehender Hardwaretest ist klar zu benennen.
 - Bei ausdrücklichem Implementierungsauftrag innerhalb dieses Umfangs selbstständig weiterarbeiten. Routineentscheidungen treffen; nur fachlich notwendige offene Punkte klären.
 - Mit der Nutzerin bzw. dem Nutzer auf Deutsch kommunizieren. Die Oberfläche und Dokumente sind deutschsprachig.
@@ -18,7 +18,17 @@ Eine Lehrerin verwaltet Klassen und Klausuren, erfasst Leistungen und Rechtschre
 - Nach Installation vollständig offline nutzbar, einschließlich Anmeldung, Berechnung, Export, Sicherung und Wiederherstellung.
 - Einzelbenutzerbetrieb auf diesem einen Gerät. Keine Mehrbenutzer- oder Synchronisierungsfunktionen einführen.
 - Start möglichst über eine Verknüpfung, die den lokalen Dienst startet und die Oberfläche öffnet; keine Entwicklerkonsole im Alltagsbetrieb verlangen.
+- Die portable Anwendung über `Klausurfix.exe` ohne VBScript starten; die EXE startet den lokalen Dienst und den Browser und erstellt nach Möglichkeit eine Desktop-Verknüpfung, ohne eine bestehende zu überschreiben. Eine andere bereits laufende Programmversion nicht stillschweigend übernehmen.
 - Arbeitsdaten und Sicherungen außerhalb des Git-Repositorys und außerhalb synchronisierter Ordner ablegen.
+
+## Offline-Updates: Auftrag und Stand
+
+- Gewünscht ist eine einzelne offline verteilbare Update-EXE, die alle Schritte sichtbar begleitet: Eingaben speichern, verschlüsselte Sicherung erstellen und prüfen, Klausurfix geordnet beenden, die neue Version installieren und die Anwendung neu starten. Die Nutzerin soll keine Entwicklerkonsole benötigen.
+- Der Prüf-Assistent unter `update-entwicklung/` prüft bisher nur Paket und Architektur. Er installiert nichts und steuert die App nicht. Paketbau, Signaturprüfung, eine Update-Sicherung, Ansichtsabstimmung, Schreibsperre, Versionsablage und Umschaltung existieren als teilweise getestete Bausteine; sie bilden noch keinen vollständigen oder produktionsreifen Update-Ablauf.
+- „Für Update sichern“ speichert und sichert nach Antworten registrierter Ansichten. Nach Seiten-, Browser- oder Dienstneustarts ist nicht nachgewiesen, dass alle offenen Ansichten erfasst sind; das Ergebnis allein berechtigt nicht zur Installation oder zum automatischen Beenden.
+- `StoppedVersionInstaller` verbindet Bereitstellung und Versionsumschaltung für neue kompatible Starter, aber weder Sicherung noch geordnetes Beenden sind angeschlossen. Version 0.1.4 und ihre bestehenden Verknüpfungen benötigen einen gesonderten Übergang. Keine automatische Rückkehr zu einer älteren Version nach inkompatibler Datenmigration.
+- Vertrauenswürdige Herausgeberidentität und Verteilung der signierten EXE, Schlüsselwechsel, koordinierte Übergabe sowie der vollständige Offline- und Surface-Test stehen aus. Der private Signaturschlüssel gehört nicht ins Repository. Hardwaretests nicht aus Mocks oder lokalen Tests ableiten.
+- Bei Update-Arbeiten den projektlokalen Skill `update-entwicklung/skills/klausurfix-offline-update/SKILL.md` lesen und den End-to-End-Ablauf fertigstellen, statt weitere unverbundene Prototypen als Fortschritt auszugeben. Der Skill liegt im Repository und ist nicht automatisch als global installierter Skill verfügbar.
 
 ## Fachliche Anforderungen
 

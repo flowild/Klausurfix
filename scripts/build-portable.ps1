@@ -1,12 +1,14 @@
 param(
-    [ValidateSet('win-arm64', 'win-x64')][string[]]$Runtime = @('win-arm64', 'win-x64')
+    [ValidateSet('win-arm64', 'win-x64')][string[]]$Runtime = @('win-arm64', 'win-x64'),
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$PackageVersion = '0.1.4'
 )
 
 $ErrorActionPreference = 'Stop'
-$packageVersion = '0.1.2'
+$packageVersion = $PackageVersion
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $outputRoot = Join-Path $projectRoot 'release'
 $projectPath = Join-Path $projectRoot 'src\Klausurfix.Web\Klausurfix.Web.csproj'
+$launcherPath = Join-Path $projectRoot 'src\Klausurfix.Launcher\Klausurfix.Launcher.csproj'
 $nugetRoot = Join-Path $env:USERPROFILE '.nuget\packages'
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
 $workRoot = Join-Path $outputRoot ('.portable-' + [Guid]::NewGuid().ToString('N'))
@@ -22,12 +24,14 @@ try {
         New-Item -ItemType Directory -Force -Path $appDir | Out-Null
         & dotnet publish $projectPath -c Release -r $rid --self-contained true -o $appDir --artifacts-path $buildDir -p:Version=$packageVersion -p:DebugType=None -p:NuGetAudit=false
         if ($LASTEXITCODE -ne 0) { throw "Build fehlgeschlagen: $rid" }
-        $scriptsDir = Join-Path $packageRoot 'scripts'
+        & dotnet publish $launcherPath -c Release -r $rid --self-contained true -o $packageRoot --artifacts-path (Join-Path $workRoot "launcher-$rid") -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:Version=$packageVersion -p:DebugType=None -p:NuGetAudit=false
+        if ($LASTEXITCODE -ne 0) { throw "Starter-Build fehlgeschlagen: $rid" }
+        [System.IO.File]::WriteAllText((Join-Path $packageRoot 'update-starter-v1.txt'), 'Klausurfix update starter v1', [System.Text.Encoding]::ASCII)
         $licensesDir = Join-Path $packageRoot 'Lizenzen'
-        New-Item -ItemType Directory -Force -Path $scriptsDir, $licensesDir | Out-Null
-        Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'start-portable.ps1') -Destination (Join-Path $scriptsDir 'start-klausurfix.ps1')
-        Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'PORTABEL-LESEN.txt') -Destination (Join-Path $packageRoot 'Bitte zuerst lesen.txt')
-        Copy-Item -LiteralPath (Join-Path $projectRoot 'Klausurfix.vbs'), (Join-Path $projectRoot 'Verknuepfung-erstellen.vbs') -Destination $packageRoot
+        New-Item -ItemType Directory -Force -Path $licensesDir | Out-Null
+        $readme = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'PORTABEL-LESEN.txt') -Raw -Encoding UTF8
+        $readme = [regex]::Replace($readme, '(?m)^(Klausurfix )\d+\.\d+\.\d+', { param($match) $match.Groups[1].Value + $packageVersion })
+        [System.IO.File]::WriteAllText((Join-Path $packageRoot 'Bitte zuerst lesen.txt'), $readme, [System.Text.UTF8Encoding]::new($false))
 
         # Include the license expressions and packaged license/notice files for the resolved dependencies.
         $assetsPath = Join-Path $buildDir 'obj\Klausurfix.Web\project.assets.json'

@@ -17,6 +17,74 @@ using Xunit;
 public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>, IDisposable
 {
     [Fact]
+    public async Task UpdateViews_CoordinateRegisteredViewsAcrossSessionsAndRequireLoginToStart()
+    {
+        var first = (await (await _client.PostAsync("/api/update/view/register", null)).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("viewId").GetString();
+        var second = (await (await _client.PostAsync("/api/update/view/register", null)).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("viewId").GetString();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _client.PostAsync("/api/update/save-round/begin", null)).StatusCode);
+        var recovery = KeyManager.GenerateRecoveryKey();
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/setup/init", new { pin = "123456", recoveryKey = recovery })).StatusCode);
+        var begin = await _client.PostAsync("/api/update/save-round/begin", null);
+        var round = (await begin.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("roundId").GetString();
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/update/view/respond", new { viewId = first, roundId = round, saved = true })).StatusCode);
+        var pending = await (await _client.PostAsJsonAsync("/api/update/save-round/status", new { roundId = round })).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(pending.GetProperty("complete").GetBoolean());
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/update/view/respond", new { viewId = second, roundId = round, saved = true })).StatusCode);
+        var done = await (await _client.PostAsJsonAsync("/api/update/save-round/status", new { roundId = round })).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(done.GetProperty("complete").GetBoolean());
+        Assert.Equal(2, done.GetProperty("expected").GetInt32());
+    }
+
+    [Fact]
+    public async Task UpdatePreparation_CreatesRecoverableBackupWhileApiWritesAreFrozen()
+    {
+        var recovery = KeyManager.GenerateRecoveryKey();
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/setup/init", new { pin = "123456", recoveryKey = recovery })).StatusCode);
+        var preparation = _factory.Services.GetRequiredService<UpdatePreparation>();
+        string name;
+        using (var prepared = await preparation.PrepareAsync())
+        {
+            name = prepared.Backup.FileName;
+            Assert.StartsWith("klausurfix_update_", name);
+            Assert.Equal((HttpStatusCode)423, (await _client.PostAsync("/api/backups/create", null)).StatusCode);
+        }
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync($"/api/backups/{name}/restore", new { recoveryKey = recovery })).StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateWriteGate_RejectsMutationsWhileFrozenAndAllowsReads()
+    {
+        var recovery = KeyManager.GenerateRecoveryKey();
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/setup/init", new { pin = "123456", recoveryKey = recovery })).StatusCode);
+        var gate = _factory.Services.GetRequiredService<UpdateWriteGate>();
+        using (var freeze = await gate.FreezeAsync())
+        {
+            Assert.NotNull(freeze);
+            Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync("/api/backups")).StatusCode);
+            Assert.Equal((HttpStatusCode)423, (await _client.PostAsync("/api/update/backup", null)).StatusCode);
+        }
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsync("/api/update/backup", null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateBackup_RequiresSessionAndCanBeRestored()
+    {
+        const string url = "/api/update/backup";
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _client.PostAsync(url, null)).StatusCode);
+        var recovery = KeyManager.GenerateRecoveryKey();
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/setup/init", new { pin = "123456", recoveryKey = recovery })).StatusCode);
+        var response = await _client.PostAsync(url, null);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var backup = await response.Content.ReadFromJsonAsync<Klausurfix.Infrastructure.Backup.ManagedBackupInfo>();
+        Assert.NotNull(backup);
+        Assert.StartsWith("klausurfix_update_", backup.FileName);
+        Assert.Contains((await _client.GetFromJsonAsync<List<Klausurfix.Infrastructure.Backup.ManagedBackupInfo>>("/api/backups"))!, b => b.FileName == backup.FileName);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync($"/api/backups/{backup.FileName}/restore", new { recoveryKey = recovery })).StatusCode);
+        await _client.PostAsync("/api/auth/lock", null);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _client.PostAsync(url, null)).StatusCode);
+    }
+
+    [Fact]
     public async Task ManualBackups_CreateAndDownloadWithoutRecoveryKeyButRestoreRequiresIt()
     {
         Assert.Equal(HttpStatusCode.Unauthorized, (await _client.PostAsync("/api/backups/create", null)).StatusCode);

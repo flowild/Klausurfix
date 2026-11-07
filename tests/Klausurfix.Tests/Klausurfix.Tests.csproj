@@ -23,6 +23,7 @@
     <ProjectReference Include="..\..\src\Klausurfix.Core\Klausurfix.Core.csproj" />
     <ProjectReference Include="..\..\src\Klausurfix.Infrastructure\Klausurfix.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Klausurfix.Web\Klausurfix.Web.csproj" />
+    <ProjectReference Include="..\..\update-entwicklung\Versionsablage\Versionsablage.csproj" />
   </ItemGroup>
 
 </Project>

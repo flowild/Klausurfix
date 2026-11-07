@@ -29,6 +29,11 @@ builder.Services.Configure<JsonOptions>(options =>
 builder.Services.AddSingleton<ILocalKeyProtector, UserKeyProtector>();
 builder.Services.AddSingleton<KeyManager>();
 builder.Services.AddSingleton<LocalSessions>();
+builder.Services.AddSingleton<UpdateWriteGate>();
+builder.Services.AddSingleton<UpdateViewRegistry>();
+builder.Services.AddSingleton(services => new UpdatePreparation(
+    services.GetRequiredService<UpdateWriteGate>(),
+    services.GetRequiredService<BackupService>().CreateUpdateBackup));
 builder.Services.AddSingleton<HelloCeremonies>();
 builder.Services.AddSingleton<DatabaseContext>();
 builder.Services.AddSingleton<BackupService>();
@@ -86,12 +91,35 @@ app.Use(async (context, next) =>
     }
 });
 
+// In preparation for a future update, serialize API mutations with a write gate.
+// No production endpoint can freeze it until all browser tabs are coordinated.
+app.Use(async (context, next) =>
+{
+    if (!context.Request.Path.StartsWithSegments("/api") || HttpMethods.IsGet(context.Request.Method) ||
+        HttpMethods.IsHead(context.Request.Method) || HttpMethods.IsOptions(context.Request.Method))
+    {
+        await next();
+        return;
+    }
+    var gate = context.RequestServices.GetRequiredService<UpdateWriteGate>();
+    using var lease = await gate.EnterWriteAsync(context.RequestAborted);
+    if (lease is null)
+    {
+        context.Response.StatusCode = StatusCodes.Status423Locked;
+        await context.Response.WriteAsJsonAsync(new { error = "Klausurfix wird für ein Update vorbereitet. Bitte anschließend erneut versuchen." });
+        return;
+    }
+    await next();
+});
+
 // Authorization Middleware: check lock state on /api/ endpoints (except /api/setup and /api/auth)
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path;
     bool isPublic = path == "/api/health" || path == "/api/setup/status" || path == "/api/setup/generate-recovery-key" ||
-        path == "/api/setup/init" || path == "/api/auth/unlock-pin" ||
+        path == "/api/setup/init" || path == "/api/update/view/register" ||
+        path == "/api/update/view/poll" || path == "/api/update/view/respond" || path == "/api/update/view/unregister" ||
+        path == "/api/auth/unlock-pin" ||
         path == "/api/auth/unlock-recovery" || path == "/api/auth/unlock-hello" ||
         path == "/api/auth/hello/unlock/options" || path == "/api/auth/hello/unlock/complete";
     if (path.StartsWithSegments("/api") && !isPublic)
@@ -695,6 +723,46 @@ app.MapGet("/api/klausuren/{id}/export/docx", (string id, DatabaseContext db, Do
 
 #region Settings & Backup APIs
 
+// View tokens are random process-local capabilities. These endpoints never disclose
+// student data; round creation and result inspection still require a login.
+app.MapPost("/api/update/view/register", (UpdateViewRegistry views) =>
+{
+    try { return Results.Ok(new { viewId = views.Register() }); }
+    catch (InvalidOperationException) { return Results.Conflict(new { error = "Zu viele Ansichten registriert." }); }
+});
+app.MapPost("/api/update/view/poll", (UpdateViewRequest request, UpdateViewRegistry views) =>
+    !views.Contains(request.ViewId ?? "") ? Results.NotFound() : Results.Ok(new { roundId = views.PendingFor(request.ViewId!) }));
+app.MapPost("/api/update/view/respond", (UpdateViewResponse request, UpdateViewRegistry views) =>
+    views.Respond(request.ViewId ?? "", request.RoundId ?? "", request.Saved == true) ? Results.Ok() : Results.Conflict());
+app.MapPost("/api/update/view/unregister", (UpdateViewRequest request, UpdateViewRegistry views) =>
+{
+    views.Unregister(request.ViewId ?? "");
+    return Results.Ok();
+});
+app.MapPost("/api/update/save-round/begin", (UpdateViewRegistry views) =>
+{
+    try { return Results.Ok(new { roundId = views.Begin() }); }
+    catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
+});
+app.MapPost("/api/update/save-round/status", (UpdateRoundRequest request, UpdateViewRegistry views) =>
+{
+    try { return Results.Ok(views.Status(request.RoundId ?? "")); }
+    catch (InvalidOperationException) { return Results.NotFound(); }
+});
+app.MapPost("/api/update/save-round/cancel", (UpdateRoundRequest request, UpdateViewRegistry views) =>
+    views.Cancel(request.RoundId ?? "") ? Results.Ok() : Results.NotFound());
+
+// This prepares a recoverable snapshot only. It does not assert that browser inputs
+// have been flushed, authorize an installer, or stop the application.
+app.MapPost("/api/update/backup", (BackupService backupService) =>
+{
+    try { return Results.Ok(backupService.CreateUpdateBackup()); }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException)
+    {
+        return Results.Problem("Die Sicherung vor dem Update konnte nicht erstellt werden.");
+    }
+});
+
 app.MapPost("/api/settings/timeout", (TimeoutRequest req, KeyManager km) =>
 {
     km.InactivityTimeoutMinutes = req.TimeoutMinutes;
@@ -827,6 +895,9 @@ public record HelloAssertionRequest(string Token, AuthenticatorAssertionRawRespo
 public record ChangePinRequest(string OldPin, string NewPin);
 public record TimeoutRequest(int TimeoutMinutes);
 public record AutomaticBackupSettingsRequest(bool? Enabled, int? IntervalHours);
+public record UpdateViewRequest(string? ViewId);
+public record UpdateViewResponse(string? ViewId, string? RoundId, bool? Saved);
+public record UpdateRoundRequest(string? RoundId);
 public record BackupRestoreRequest(string RecoveryKey);
 public record BackupFileRestoreRequest(string RecoveryKey, string DataBase64);
 public record DangerActionRequest(string Pin);

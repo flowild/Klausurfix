@@ -108,6 +108,7 @@
 .backup-toggle input { width: 1.15rem; height: 1.15rem; accent-color: var(--primary); }
 .backup-status { color: var(--gray-800); margin-top: 1rem; }
 .backup-help { color: var(--gray-500); font-size: .9rem; margin-top: .35rem; }
+.update-save-overlay { position: fixed; z-index: 2147483647; inset: 0; display: flex; align-items: center; justify-content: center; padding: 2rem; text-align: center; font-size: 1.2rem; color: #172c31; background: rgba(255, 255, 255, .94); }
 .backup-actions { display: flex; flex-wrap: wrap; gap: .75rem; }
 .table-responsive.backup-table-container { margin-top: .9rem; max-height: min(28rem, 55vh); overflow: auto; }
 .backup-table thead th { position: sticky; top: 0; z-index: 1; }
