@@ -1438,7 +1438,7 @@ document.getElementById("prepareUpdateSaveBtn").addEventListener("click", async 
   button.disabled = true;
   try {
     showToast("Speicherung in geöffneten Tabs wird angefordert …", "info");
-    const { count } = await updateSave.request(() => api.createUpdateBackup());
+    const { count } = await updateSave.request(roundId => api.createUpdateBackup(roundId));
     showToast(`Eingaben in ${count} registrierten Ansicht(en) gespeichert und verschlüsselte Sicherung erstellt.`, "success");
   } catch (err) { showToast(err.message || "Speichern nicht abgeschlossen.", "error"); }
   finally { button.disabled = false; }

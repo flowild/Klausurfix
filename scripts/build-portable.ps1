@@ -1,6 +1,5 @@
 param(
-    [ValidateSet('win-arm64', 'win-x64')][string[]]$Runtime = @('win-arm64', 'win-x64'),
-    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$PackageVersion = '0.1.4'
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$PackageVersion = '0.1.5'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -10,12 +9,20 @@ $outputRoot = Join-Path $projectRoot 'release'
 $projectPath = Join-Path $projectRoot 'src\Klausurfix.Web\Klausurfix.Web.csproj'
 $launcherPath = Join-Path $projectRoot 'src\Klausurfix.Launcher\Klausurfix.Launcher.csproj'
 $nugetRoot = Join-Path $env:USERPROFILE '.nuget\packages'
+$runtimes = @('win-arm64', 'win-x64')
+$packageBuilder = Join-Path $projectRoot 'update-entwicklung\Paketbau\Paketbau.csproj'
+$assistantBuilder = Join-Path $projectRoot 'update-entwicklung\erzeuge-pruef-assistent.ps1'
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
+foreach ($rid in $runtimes) {
+    foreach ($name in @("Klausurfix-$packageVersion-$rid.zip", "Klausurfix-Update-$packageVersion-$rid.zip", "Klausurfix-Update-$packageVersion-$rid.exe")) {
+        if (Test-Path -LiteralPath (Join-Path $outputRoot $name)) { throw "Ausgabedatei existiert bereits: $name" }
+    }
+}
 $workRoot = Join-Path $outputRoot ('.portable-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $workRoot | Out-Null
 
 try {
-    foreach ($rid in $Runtime) {
+    foreach ($rid in $runtimes) {
         $zipPath = Join-Path $outputRoot "Klausurfix-$packageVersion-$rid.zip"
         if (Test-Path -LiteralPath $zipPath) { throw "Ausgabedatei existiert bereits: $zipPath" }
         $packageRoot = Join-Path $workRoot "Klausurfix-$packageVersion-$rid"
@@ -27,6 +34,7 @@ try {
         & dotnet publish $launcherPath -c Release -r $rid --self-contained true -o $packageRoot --artifacts-path (Join-Path $workRoot "launcher-$rid") -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:Version=$packageVersion -p:DebugType=None -p:NuGetAudit=false
         if ($LASTEXITCODE -ne 0) { throw "Starter-Build fehlgeschlagen: $rid" }
         [System.IO.File]::WriteAllText((Join-Path $packageRoot 'update-starter-v1.txt'), 'Klausurfix update starter v1', [System.Text.Encoding]::ASCII)
+        [System.IO.File]::WriteAllText((Join-Path $packageRoot 'basis-version.txt'), "$packageVersion|$rid", [System.Text.Encoding]::ASCII)
         $licensesDir = Join-Path $packageRoot 'Lizenzen'
         New-Item -ItemType Directory -Force -Path $licensesDir | Out-Null
         $readme = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'PORTABEL-LESEN.txt') -Raw -Encoding UTF8
@@ -66,6 +74,12 @@ try {
 
         Compress-Archive -LiteralPath $packageRoot -DestinationPath $zipPath -CompressionLevel Optimal
         Write-Output "Erstellt: $zipPath"
+        $updatePackage = Join-Path $outputRoot "Klausurfix-Update-$packageVersion-$rid.zip"
+        & dotnet run --project $packageBuilder -- $packageRoot $packageVersion $rid $updatePackage
+        if ($LASTEXITCODE -ne 0) { throw "Updatepaket konnte nicht erstellt werden: $rid" }
+        $updateExe = Join-Path $outputRoot "Klausurfix-Update-$packageVersion-$rid.exe"
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $assistantBuilder -Paket $updatePackage -Architektur $rid -Ausgabedatei $updateExe
+        if ($LASTEXITCODE -ne 0) { throw "Update-EXE konnte nicht erstellt werden: $rid" }
     }
 } finally {
     # Only remove the unique staging directory created above, after verifying its resolved location.

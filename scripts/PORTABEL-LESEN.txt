@@ -28,6 +28,12 @@ und dort Klausurfix.exe starten. Die vorhandenen Arbeitsdaten bleiben im
 Windows-Benutzerprofil. Eine bestehende Desktop-Verknüpfung verweist weiterhin
 auf den alten Programmordner und muss bei Bedarf angepasst werden.
 
+Diese Version enthält einen Starter für spätere Offline-Updates. Vor einem
+Update eine verschlüsselte Sicherung erstellen, den Wiederherstellungsschlüssel
+bereithalten und Klausurfix über „Beenden“ schließen. Danach die zur Architektur
+passende Update-EXE starten und den Programmordner dieser Version auswählen.
+Der Update-Ablauf ist noch nicht vollständig auf dem Zielgerät getestet.
+
 Windows Hello, Touch und Betrieb auf dem Surface Pro 11 müssen
 auf dem Zielgerät noch geprüft werden. Die PIN-Anmeldung bleibt alternativ nutzbar.
 Hinweise zu Abhängigkeiten und Lizenzen stehen im Ordner Lizenzen.

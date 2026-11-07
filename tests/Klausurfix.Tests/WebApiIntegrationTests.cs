@@ -17,6 +17,26 @@ using Xunit;
 public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>, IDisposable
 {
     [Fact]
+    public async Task CoordinatedBackupRequiresCompleteRoundAndCreatesRestorableBackup()
+    {
+        const string url = "/api/update/coordinated-backup";
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _client.PostAsJsonAsync(url, new { roundId = "x" })).StatusCode);
+        var recovery = KeyManager.GenerateRecoveryKey();
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/setup/init", new { pin = "123456", recoveryKey = recovery })).StatusCode);
+        var view = (await (await _client.PostAsync("/api/update/view/register", null)).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("viewId").GetString();
+        var round = (await (await _client.PostAsync("/api/update/save-round/begin", null)).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("roundId").GetString();
+        Assert.Equal(HttpStatusCode.Conflict, (await _client.PostAsJsonAsync(url, new { roundId = round })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/update/view/respond", new { viewId = view, roundId = round, saved = true })).StatusCode);
+        var response = await _client.PostAsJsonAsync(url, new { roundId = round });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var backup = await response.Content.ReadFromJsonAsync<Klausurfix.Infrastructure.Backup.ManagedBackupInfo>();
+        Assert.NotNull(backup);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync($"/api/backups/{backup.FileName}/restore", new { recoveryKey = recovery })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/update/save-round/cancel", new { roundId = round })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await _client.PostAsJsonAsync(url, new { roundId = round })).StatusCode);
+    }
+
+    [Fact]
     public async Task UpdateViews_CoordinateRegisteredViewsAcrossSessionsAndRequireLoginToStart()
     {
         var first = (await (await _client.PostAsync("/api/update/view/register", null)).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("viewId").GetString();

@@ -6,15 +6,17 @@ using Klausurfix.Infrastructure.Backup;
 /// </summary>
 public sealed class UpdatePreparation(UpdateWriteGate gate, Func<ManagedBackupInfo> createBackup)
 {
-    public async Task<PreparedUpdate> PrepareAsync(CancellationToken cancellationToken = default)
+    public async Task<PreparedUpdate> PrepareAsync(CancellationToken cancellationToken = default, Action? validate = null)
     {
         var freeze = await gate.FreezeAsync(cancellationToken)
             ?? throw new InvalidOperationException("Eine Update-Vorbereitung läuft bereits.");
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
+            validate?.Invoke();
             var backup = createBackup();
             cancellationToken.ThrowIfCancellationRequested();
+            validate?.Invoke();
             return new PreparedUpdate(backup, freeze);
         }
         catch

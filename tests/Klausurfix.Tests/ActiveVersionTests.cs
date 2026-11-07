@@ -12,6 +12,7 @@ public class ActiveVersionTests
         try
         {
             var architecture = RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "win-arm64" : "win-x64";
+            File.WriteAllText(Path.Combine(root, "basis-version.txt"), "0.1.5|" + architecture);
             Assert.Equal(Path.Combine(root, "app", "Klausurfix.Web.exe"), ActiveVersion.ResolveBackend(root));
             var folder = Path.Combine(root, "versionen", "0.2.0-" + architecture);
             Directory.CreateDirectory(Path.Combine(folder, "app"));
@@ -24,6 +25,24 @@ public class ActiveVersionTests
             Assert.Equal(backend, ActiveVersion.ResolveBackend(root));
             File.WriteAllText(Path.Combine(root, "aktive-version.txt"), "../unzulässig|" + architecture);
             Assert.Throws<InvalidDataException>(() => ActiveVersion.ResolveBackend(root));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
+    public void FirstActivationRequiresKnownOlderBaseVersion()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "klausurfix-basis-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(root, "versionen", "0.1.5-win-x64", "app"));
+        try
+        {
+            var version = Path.Combine(root, "versionen", "0.1.5-win-x64");
+            File.WriteAllText(Path.Combine(version, "Klausurfix.exe"), "starter");
+            File.WriteAllText(Path.Combine(version, "app", "Klausurfix.Web.exe"), "dienst");
+            Assert.Throws<InvalidOperationException>(() => ActiveVersion.Activate(root, "0.1.5", "win-x64"));
+            File.WriteAllText(Path.Combine(root, "basis-version.txt"), "0.1.5|win-x64");
+            Assert.Throws<InvalidOperationException>(() => ActiveVersion.Activate(root, "0.1.5", "win-x64"));
+            Assert.False(File.Exists(Path.Combine(root, "aktive-version.txt")));
         }
         finally { Directory.Delete(root, recursive: true); }
     }

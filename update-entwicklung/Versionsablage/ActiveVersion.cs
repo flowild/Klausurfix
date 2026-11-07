@@ -40,6 +40,18 @@ public static class ActiveVersion
             if (Version.Parse(previous.Version) >= Version.Parse(parsed.Version))
                 throw new InvalidOperationException("Eine gleich alte oder ältere Version wird nicht automatisch aktiviert.");
         }
+        else
+        {
+            var baseline = Path.Combine(root, "basis-version.txt");
+            if (!File.Exists(baseline))
+                throw new InvalidOperationException("Die installierte Ausgangsversion ist nicht bekannt. Das Update wurde nicht aktiviert.");
+            using var input = new FileStream(baseline, FileMode.Open, FileAccess.Read, FileShare.Read);
+            if (input.Length > 100) throw new InvalidDataException("Die installierte Ausgangsversion ist ungültig.");
+            using var reader = new StreamReader(input, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+            var previous = Parse(reader.ReadToEnd());
+            if (previous.Architecture != parsed.Architecture || Version.Parse(previous.Version) >= Version.Parse(parsed.Version))
+                throw new InvalidOperationException("Die Ausgangsversion passt nicht oder das Update ist nicht neuer.");
+        }
         var temp = Path.Combine(root, ".aktive-version-" + Guid.NewGuid().ToString("N") + ".tmp");
         try
         {

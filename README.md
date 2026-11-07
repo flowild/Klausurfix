@@ -45,7 +45,7 @@ Für die portable Version ab 0.1.4 das passende ZIP vollständig entpacken und `
 
 Zum Aktualisieren von 0.1 zunächst dort eine verschlüsselte Sicherung erstellen und die App mit **Beenden** schließen. Die neue Version in einen eigenen Programmordner entpacken und daraus starten; vorhandene Arbeitsdaten werden beim Entsperren migriert. Die umgestellte Arbeitsdatenbank ist mit 0.1 nicht mehr lesbar. Eine bisherige Desktop-Verknüpfung verweist weiterhin auf den alten Programmordner und muss angepasst werden.
 
-Die Pakete lassen sich mit `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1` aus dem Quellcode erstellen; sie erscheinen unter `release/`. Die Lizenzbedingungen der mitgelieferten Komponenten liegen im Paket unter `Lizenzen`. Für QuestPDF ist im Code die Community-Lizenz eingestellt; deren Voraussetzungen sind für den jeweiligen Einsatz zu prüfen.
+Mit `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1` entstehen für `win-x64` und `win-arm64` jeweils ein App-ZIP, ein Updatepaket und eine Update-EXE unter `release/`. Die voreingestellte Ausgangsversion 0.1.5 enthält den Starter für spätere Updates; die Update-EXE derselben Version ist für eine ältere kompatible Ausgangsversion bestimmt und aktualisiert 0.1.5 nicht erneut auf 0.1.5. Der Umstieg von 0.1.4 erfolgt weiterhin wie oben beschrieben durch Entpacken in einen neuen Ordner. Die Update-EXE und der Ablauf auf dem Surface sind noch nicht vollständig geprüft. Die Lizenzbedingungen liegen im Paket unter `Lizenzen`. Für QuestPDF ist im Code die Community-Lizenz eingestellt; deren Voraussetzungen sind für den jeweiligen Einsatz zu prüfen.
 
 Doppelklick auf `Klausurfix.exe` startet den lokalen Hintergrunddienst ohne sichtbares Konsolenfenster und öffnet die Anwendung in Microsoft Edge. Wenn Edge nicht gefunden wird, öffnet sich der Standardbrowser. Ein weiterer Start verwendet die bereits laufende Instanz derselben Programmversion. Eine andere laufende Version muss zunächst in der Anwendung beendet werden.
 
@@ -91,7 +91,7 @@ Automatische und neu erstellte manuelle Sicherungen verwenden Sicherungsformat 2
 
 ## Projektstruktur
 
-Die Grundlagen für spätere Offline-Updates liegen unter `update-entwicklung/`. Dort befinden sich Werkzeuge zum Erstellen und Prüfen signierter Pakete sowie die noch ausstehenden Schritte für eine sichere Installation. Das Backend kann bereits eine gesondert gekennzeichnete verschlüsselte Update-Sicherung aus einer authentifizierten Sitzung erstellen. Eine automatische Update-Installation und die Abstimmung offener Browser-Tabs sind noch nicht implementiert.
+Die Offline-Update-Funktion wird unter `update-entwicklung/` entwickelt. Ein Assistent kann nach manueller Sicherung und Beendigung bei kompatiblem Starter eine geprüfte Version aktivieren und starten. Auf Nutzerwunsch sind Updatepaket und EXE nicht signiert; die Paketprüfung belegt keine Herkunft. Der vollständige Ablauf der einzelnen Update-EXE und der Übergang von Version 0.1.4 sind noch nicht vollständig geprüft; der Ablauf ist nicht produktionsreif.
 
 ```
 Klausurfix/

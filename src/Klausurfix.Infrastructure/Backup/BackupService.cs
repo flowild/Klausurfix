@@ -209,6 +209,15 @@ public class BackupService
     /// </summary>
     public void RestoreBackup(byte[] backupBytes, string recoveryKey)
     {
+        _dbContext.ReplaceFromBackup(ReadBackupPayload(backupBytes, recoveryKey));
+    }
+
+    /// <summary>Checks decryption and supported payload structure without changing the database.</summary>
+    public static void VerifyBackup(byte[] backupBytes, string recoveryKey)
+        => _ = ReadBackupPayload(backupBytes, recoveryKey);
+
+    private static BackupPayload ReadBackupPayload(byte[] backupBytes, string recoveryKey)
+    {
         if (string.IsNullOrWhiteSpace(recoveryKey))
             throw new ArgumentException("Wiederherstellungsschlüssel erforderlich.", nameof(recoveryKey));
 
@@ -254,11 +263,17 @@ public class BackupService
         }
 
         // 3. Deserialize and validate payload
-        var payloadJson = Encoding.UTF8.GetString(decryptedBytes);
-        var payload = JsonSerializer.Deserialize<BackupPayload>(payloadJson)
-            ?? throw new InvalidOperationException("Sicherungsdaten konnten nicht gelesen werden.");
-
-        _dbContext.ReplaceFromBackup(payload);
+        try
+        {
+            var payload = JsonSerializer.Deserialize<BackupPayload>(decryptedBytes)
+                ?? throw new InvalidOperationException("Sicherungsdaten konnten nicht gelesen werden.");
+            if (payload.Version is not (1 or 2 or 3 or 4) || payload.Schulformen == null || payload.Classes == null ||
+                payload.Students == null || payload.Exams == null)
+                throw new InvalidOperationException("Ungültige Sicherungsdaten.");
+            foreach (var school in payload.Schulformen) school.Profile.Validate();
+            return payload;
+        }
+        finally { CryptoService.ZeroMemory(decryptedBytes); }
     }
 
     public void RestoreManagedBackup(string fileName, string recoveryKey)

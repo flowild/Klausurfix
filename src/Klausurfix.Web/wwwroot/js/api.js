@@ -218,8 +218,8 @@ export const api = {
       method: "POST"
     });
   },
-  createUpdateBackup() {
-    return this.request("/api/update/backup", { method: "POST" });
+  createUpdateBackup(roundId) {
+    return this.request("/api/update/coordinated-backup", { method: "POST", body: JSON.stringify({ roundId }) });
   },
   downloadBackup() {
     return this.request("/api/backups/download", { method: "POST" });

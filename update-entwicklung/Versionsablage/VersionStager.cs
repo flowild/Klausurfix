@@ -1,17 +1,24 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
 
-/// <summary>Stages a verified update without activating it or touching application data.</summary>
+/// <summary>Checks package contents and stages them without activating them or touching application data.</summary>
 public static class VersionStager
 {
-    public static StagedVersion Stage(string packagePath, string publicKey, string installationDirectory, string architecture)
+    public static StagedVersion Stage(string packagePath, string installationDirectory, string architecture)
     {
+        using var package = new FileStream(packagePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        return Stage(package, installationDirectory, architecture);
+    }
+
+    public static StagedVersion Stage(Stream package, string installationDirectory, string architecture)
+    {
+        if (!package.CanRead || !package.CanSeek) throw new ArgumentException("Das Update-Paket muss lesbar und positionierbar sein.", nameof(package));
+        package.Position = 0;
         if (architecture is not ("win-x64" or "win-arm64")) throw new ArgumentException("Unbekannte Architektur.");
         var root = Path.GetFullPath(installationDirectory);
         if (!Directory.Exists(root)) throw new DirectoryNotFoundException("Der Programmordner existiert nicht.");
         CheckExistingParents(root);
-        using var package = new FileStream(packagePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-        var manifest = UpdatePackage.Verify(package, publicKey);
+        var manifest = UpdatePackage.Verify(package);
         if (manifest.Architektur != architecture) throw new InvalidDataException("Falsche Paketarchitektur.");
         var version = Version.Parse(manifest.Version!).ToString(3);
         var files = manifest.Dateien!;

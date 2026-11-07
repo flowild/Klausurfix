@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Klausurfix.Infrastructure\Klausurfix.Infrastructure.csproj" />
     <Compile Include="..\Paketpruefung\UpdatePackage.cs" Link="UpdatePackage.cs" />
   </ItemGroup>
 </Project>

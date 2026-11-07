@@ -2,6 +2,41 @@ namespace Klausurfix.Tests;
 
 public class UpdateViewRegistryTests
 {
+    private sealed class TestClock : TimeProvider
+    {
+        private long _ticks;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() => _ticks;
+        public void Advance(TimeSpan duration) => _ticks += duration.Ticks;
+    }
+
+    [Fact]
+    public void UnresponsiveViewInvalidatesCompletedRoundAndCannotReviveIt()
+    {
+        var clock = new TestClock();
+        var registry = new UpdateViewRegistry(clock);
+        var view = registry.Register();
+        var round = registry.Begin();
+        Assert.True(registry.Respond(view, round, true));
+        Assert.True(registry.Status(round).Complete);
+        clock.Advance(TimeSpan.FromSeconds(10));
+        Assert.True(registry.Status(round).Failed);
+        Assert.Null(registry.PendingFor(view));
+        Assert.False(registry.Status(round).Complete);
+    }
+
+    [Fact]
+    public void StaleViewBlocksNewRoundUntilItRespondsOrUnregisters()
+    {
+        var clock = new TestClock();
+        var registry = new UpdateViewRegistry(clock);
+        var view = registry.Register();
+        clock.Advance(TimeSpan.FromSeconds(10));
+        Assert.Throws<InvalidOperationException>(() => registry.Begin());
+        Assert.Null(registry.PendingFor(view));
+        Assert.NotEmpty(registry.Begin());
+    }
+
     [Fact]
     public void AllRegisteredViewsMustRespondOnceToTheCurrentRound()
     {

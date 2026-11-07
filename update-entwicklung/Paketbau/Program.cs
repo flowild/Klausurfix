@@ -2,9 +2,9 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
 
-if (args.Length != 5)
+if (args.Length != 4)
 {
-    Console.Error.WriteLine("Aufruf: Paketbau <Programmordner> <Version> <win-arm64|win-x64> <privater-Schluessel.pem> <Ausgabe.zip>");
+    Console.Error.WriteLine("Aufruf: Paketbau <Programmordner> <Version> <win-arm64|win-x64> <Ausgabe.zip>");
     return 2;
 }
 
@@ -12,7 +12,7 @@ string? temporary = null;
 try
 {
     var root = Path.GetFullPath(args[0]);
-    var output = Path.GetFullPath(args[4]);
+    var output = Path.GetFullPath(args[3]);
     if (!Directory.Exists(root) || !Version.TryParse(args[1], out var version) ||
         version.Revision != -1 || version.Build < 0 || args[2] is not ("win-arm64" or "win-x64"))
         throw new ArgumentException("Programmordner, Version oder Architektur ungültig.");
@@ -22,9 +22,6 @@ try
     if ((File.GetAttributes(root) & FileAttributes.ReparsePoint) != 0)
         throw new IOException("Der Programmordner darf keine Verknüpfung sein.");
 
-    using var rsa = RSA.Create();
-    rsa.ImportFromPem(File.ReadAllText(args[3]));
-    if (rsa.KeySize < 3072) throw new CryptographicException("Der RSA-Schlüssel muss mindestens 3072 Bit haben.");
     var files = new List<(string Path, string FullPath, long Length, string Hash)>();
     var pending = new Stack<string>();
     pending.Push(root);
@@ -55,7 +52,6 @@ try
         Dateien = files.Select(f => new { Pfad = f.Path, Groesse = f.Length, Sha256 = f.Hash }).ToArray()
     });
     if (manifest.Length > 1_000_000) throw new IOException("Das Manifest ist zu groß.");
-    var signature = rsa.SignData(manifest, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
     temporary = output + "." + Guid.NewGuid().ToString("N") + ".tmp";
     using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
     using (var archive = new ZipArchive(stream, ZipArchiveMode.Create))
@@ -66,7 +62,6 @@ try
             target.Write(bytes);
         }
         Write("manifest.json", manifest);
-        Write("manifest.sig", signature);
         foreach (var file in files)
         {
             using var input = File.Open(file.FullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -88,7 +83,7 @@ try
     }
     File.Move(temporary, output, false);
     temporary = null;
-    Console.WriteLine($"Signiertes Paket erstellt: {output}");
+    Console.WriteLine($"Paket erstellt: {output}");
     return 0;
 }
 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException or ArgumentException or OverflowException)

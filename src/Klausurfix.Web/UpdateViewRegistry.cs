@@ -1,5 +1,4 @@
 using System.Security.Cryptography;
-using System.Diagnostics;
 
 /// <summary>
 /// In-memory coordination primitive. An update cannot use a successful round as
@@ -8,8 +7,15 @@ using System.Diagnostics;
 public sealed class UpdateViewRegistry
 {
     private readonly object _sync = new();
-    private readonly HashSet<string> _views = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, long> _views = new(StringComparer.Ordinal);
+    private readonly TimeProvider _clock;
+    private static readonly TimeSpan ViewTimeout = TimeSpan.FromSeconds(10);
     private Round? _round;
+
+    public UpdateViewRegistry() : this(TimeProvider.System) { }
+    public UpdateViewRegistry(TimeProvider clock) => _clock = clock;
+
+    private bool IsStale(long lastSeen) => _clock.GetElapsedTime(lastSeen) >= ViewTimeout;
 
     public string Register()
     {
@@ -17,7 +23,7 @@ public sealed class UpdateViewRegistry
         {
             if (_views.Count >= 256) throw new InvalidOperationException("Zu viele Ansichten registriert.");
             var id = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-            _views.Add(id);
+            _views.Add(id, _clock.GetTimestamp());
             if (_round is not null) _round.Invalidated = true;
             return id;
         }
@@ -25,7 +31,7 @@ public sealed class UpdateViewRegistry
 
     public bool Contains(string id)
     {
-        lock (_sync) return _views.Contains(id);
+        lock (_sync) return _views.ContainsKey(id);
     }
 
     public void Unregister(string id)
@@ -43,8 +49,9 @@ public sealed class UpdateViewRegistry
             if (_round is { } existing && existing.Expired) _round = null;
             if (_round is not null) throw new InvalidOperationException("Eine Speicherabstimmung läuft bereits.");
             if (_views.Count == 0) throw new InvalidOperationException("Keine Ansicht für die Speicherabstimmung registriert.");
+            if (_views.Values.Any(IsStale)) throw new InvalidOperationException("Eine registrierte Ansicht antwortet nicht. Bitte Klausurfix in dieser Ansicht prüfen oder schließen.");
             var id = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-            _round = new Round(id, new HashSet<string>(_views, StringComparer.Ordinal));
+            _round = new Round(id, new HashSet<string>(_views.Keys, StringComparer.Ordinal), _clock);
             return id;
         }
     }
@@ -52,7 +59,12 @@ public sealed class UpdateViewRegistry
     public string? PendingFor(string view)
     {
         lock (_sync)
+        {
+            if (!_views.TryGetValue(view, out var lastSeen)) return null;
+            if (IsStale(lastSeen) && _round is not null) _round.Invalidated = true;
+            _views[view] = _clock.GetTimestamp();
             return _round is { Invalidated: false, Expired: false } round && round.Targets.Contains(view) ? round.Id : null;
+        }
     }
 
     public bool Respond(string view, string roundId, bool saved)
@@ -69,7 +81,9 @@ public sealed class UpdateViewRegistry
         lock (_sync)
         {
             if (_round is not { } round || round.Id != roundId) throw new InvalidOperationException("Speicherabstimmung nicht gefunden.");
-            var failed = round.Invalidated || round.Expired || round.Responses.Values.Any(saved => !saved);
+            var failed = round.Invalidated || round.Expired || round.Responses.Values.Any(saved => !saved) ||
+                round.Targets.Any(view => !_views.TryGetValue(view, out var lastSeen) || IsStale(lastSeen));
+            if (failed) round.Invalidated = true;
             return new SaveRoundStatus(round.Targets.Count, round.Responses.Count, failed,
                 !failed && round.Responses.Count == round.Targets.Count);
         }
@@ -85,14 +99,14 @@ public sealed class UpdateViewRegistry
         }
     }
 
-    private sealed class Round(string id, HashSet<string> targets)
+    private sealed class Round(string id, HashSet<string> targets, TimeProvider clock)
     {
         public string Id { get; } = id;
         public HashSet<string> Targets { get; } = targets;
         public Dictionary<string, bool> Responses { get; } = new(StringComparer.Ordinal);
         public bool Invalidated { get; set; }
-        private long Started { get; } = Stopwatch.GetTimestamp();
-        public bool Expired => Stopwatch.GetElapsedTime(Started) >= TimeSpan.FromSeconds(30);
+        private long Started { get; } = clock.GetTimestamp();
+        public bool Expired => clock.GetElapsedTime(Started) >= TimeSpan.FromSeconds(30);
     }
 }
 

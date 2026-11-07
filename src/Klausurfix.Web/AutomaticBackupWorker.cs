@@ -5,17 +5,20 @@ public sealed class AutomaticBackupWorker : BackgroundService
 {
     private readonly BackupService _backups;
     private readonly KeyManager _keys;
+    private readonly UpdateWriteGate _gate;
     private string? _error;
     private DateTimeOffset? _lastCreated;
     private volatile bool _ready;
 
-    public AutomaticBackupWorker(BackupService backups, KeyManager keys) { _backups = backups; _keys = keys; }
+    public AutomaticBackupWorker(BackupService backups, KeyManager keys, UpdateWriteGate gate) { _backups = backups; _keys = keys; _gate = gate; }
     public string? Error => Volatile.Read(ref _error);
     public void ResetSchedule() { _lastCreated = null; Volatile.Write(ref _error, null); }
     public void SetReady(bool ready) => _ready = ready;
 
-    public bool RunIfDue()
+    public async Task<bool> RunIfDueAsync(CancellationToken cancellationToken = default)
     {
+        using var lease = await _gate.EnterWriteAsync(cancellationToken);
+        if (lease is null) return false;
         var created = false;
         _backups.ExecuteExclusive(() => created = RunIfDueCore());
         return created;
@@ -42,8 +45,9 @@ public sealed class AutomaticBackupWorker : BackgroundService
         {
             try
             {
-                RunIfDue();
+                await RunIfDueAsync(stoppingToken);
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception) { Volatile.Write(ref _error, "Automatische Sicherung fehlgeschlagen. Ein erneuter Versuch erfolgt automatisch."); }
             try { await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }

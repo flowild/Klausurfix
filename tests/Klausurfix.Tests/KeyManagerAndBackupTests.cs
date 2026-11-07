@@ -11,6 +11,30 @@ using Microsoft.Data.Sqlite;
 public class KeyManagerAndBackupTests : IDisposable
 {
     [Fact]
+    public void UpdateWorkflowVerifiesRealBackupAndActivatesVersion()
+    {
+        var recovery = KeyManager.GenerateRecoveryKey();
+        _keyManager.Setup("123456", recovery);
+        _dbContext.InitializeDatabase();
+        var backup = _backupService.CreateBackupBytes();
+        var architecture = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "win-arm64" : "win-x64";
+        var installation = Path.Combine(_testDir, "installation");
+        Directory.CreateDirectory(installation);
+        File.WriteAllText(Path.Combine(installation, "Klausurfix.exe"), "synthetisch");
+        File.WriteAllText(Path.Combine(installation, "update-starter-v1.txt"), "synthetisch");
+        File.WriteAllText(Path.Combine(installation, "basis-version.txt"), "0.1.5|" + architecture);
+        var packagePath = VersionStagerTests.CreatePackage(_testDir, architecture);
+        using var package = File.OpenRead(packagePath);
+        var started = false;
+        var result = UpdateWorkflow.Run(package, installation, architecture,
+            backup, recovery, () => { }, BackupService.VerifyBackup,
+            (stream, root, arch) => StoppedVersionInstaller.InstallCore(stream, root, arch, () => { }, _ => started = true));
+        Assert.True(started);
+        Assert.Equal("0.2.0", result.Version);
+        Assert.Equal(Path.Combine(result.Directory, "app", "Klausurfix.Web.exe"), ActiveVersion.ResolveBackend(installation));
+    }
+
+    [Fact]
     public void AutomaticBackup_RestoresAfterNewSetupAndRejectsWrongKeyAndTampering()
     {
         var originalRecovery = KeyManager.GenerateRecoveryKey();
@@ -21,10 +45,14 @@ public class KeyManagerAndBackupTests : IDisposable
         var file = _backupService.CreateAutomaticBackup();
         var bytes = File.ReadAllBytes(Path.Combine(AppPaths.BackupsDirectory, file.FileName));
         Assert.DoesNotContain("Synthetisch", System.Text.Encoding.UTF8.GetString(bytes));
+        BackupService.VerifyBackup(bytes, originalRecovery);
+        Assert.Throws<UnauthorizedAccessException>(() => BackupService.VerifyBackup(bytes, KeyManager.GenerateRecoveryKey()));
+        Assert.Contains(_dbContext.GetSchulformen(), s => s.Name == school.Name);
         var damaged = JsonSerializer.Deserialize<BackupEnvelope>(bytes)!;
         var ciphertext = Convert.FromBase64String(damaged.EncryptedPayload);
         ciphertext[^1] ^= 1;
         damaged.EncryptedPayload = Convert.ToBase64String(ciphertext);
+        Assert.Throws<UnauthorizedAccessException>(() => BackupService.VerifyBackup(JsonSerializer.SerializeToUtf8Bytes(damaged), originalRecovery));
         Assert.Throws<UnauthorizedAccessException>(() => _backupService.RestoreBackup(JsonSerializer.SerializeToUtf8Bytes(damaged), originalRecovery));
         Assert.Throws<UnauthorizedAccessException>(() => _backupService.RestoreBackup(bytes, KeyManager.GenerateRecoveryKey()));
         Assert.Contains(_dbContext.GetSchulformen(), s => s.Name == school.Name);
@@ -37,26 +65,32 @@ public class KeyManagerAndBackupTests : IDisposable
     }
 
     [Fact]
-    public void AutomaticBackupSchedule_SkipsLockedAndDoesNotRepeatWithinOneDay()
+    public async Task AutomaticBackupSchedule_SkipsLockedAndDoesNotRepeatWithinOneDay()
     {
-        var worker = new AutomaticBackupWorker(_backupService, _keyManager);
-        Assert.False(worker.RunIfDue());
+        var gate = new UpdateWriteGate();
+        var worker = new AutomaticBackupWorker(_backupService, _keyManager, gate);
+        Assert.False(await worker.RunIfDueAsync());
         _keyManager.Setup("123456", KeyManager.GenerateRecoveryKey());
         _dbContext.InitializeDatabase();
         worker.SetReady(true);
         _keyManager.SetAutomaticBackupSettings(false, 6);
-        Assert.False(worker.RunIfDue());
+        Assert.False(await worker.RunIfDueAsync());
         Assert.Empty(_backupService.GetManagedBackups());
         var reloaded = new KeyManager(new TestKeyProtector());
         Assert.Equal((false, 6), reloaded.GetAutomaticBackupSettings());
         _keyManager.SetAutomaticBackupSettings(true, 24);
-        Assert.True(worker.RunIfDue());
-        Assert.False(worker.RunIfDue());
+        using (var freeze = await gate.FreezeAsync())
+        {
+            Assert.False(await worker.RunIfDueAsync());
+            Assert.Empty(_backupService.GetManagedBackups());
+        }
+        Assert.True(await worker.RunIfDueAsync());
+        Assert.False(await worker.RunIfDueAsync());
         Assert.Single(_backupService.GetManagedBackups());
         _backupService.DeleteAllManagedBackups();
-        Assert.False(worker.RunIfDue());
+        Assert.False(await worker.RunIfDueAsync());
         _keyManager.Lock();
-        Assert.False(worker.RunIfDue());
+        Assert.False(await worker.RunIfDueAsync());
     }
 
     [Fact]

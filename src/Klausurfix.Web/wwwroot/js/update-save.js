@@ -19,7 +19,14 @@ export function createUpdateSaveCoordinator({ save, report, freeze }) {
 
   async function post(path, data = {}) {
     const response = await fetch(path, { method: "POST", headers, body: JSON.stringify(data), cache: "no-store" });
-    if (!response.ok) throw Object.assign(new Error("Speicherabstimmung ist nicht erreichbar."), { status: response.status });
+    if (!response.ok) {
+      let message = "Speicherabstimmung ist nicht erreichbar.";
+      if ((response.headers.get("content-type") || "").includes("application/json")) {
+        const body = await response.json().catch(() => null);
+        if (typeof body?.error === "string") message = body.error;
+      }
+      throw Object.assign(new Error(message), { status: response.status });
+    }
     return (response.headers.get("content-type") || "").includes("application/json") ? response.json() : null;
   }
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -61,7 +68,12 @@ export function createUpdateSaveCoordinator({ save, report, freeze }) {
           releaseFreeze();
           report("Die Speicherabstimmung ist beendet. Eingaben sind wieder möglich.");
         }
-        if (result.roundId) await processRound(result.roundId);
+        // Keep polling while a save is in progress so the server can distinguish
+        // a slow save from a view that has stopped responding.
+        if (result.roundId) void processRound(result.roundId).catch(() => {
+          releaseFreeze();
+          report("Die Speicherabstimmung konnte nicht bestätigt werden. Bitte erneut versuchen.", true);
+        });
       } catch (err) {
         if (err.status === 404) {
           releaseFreeze();
@@ -92,7 +104,7 @@ export function createUpdateSaveCoordinator({ save, report, freeze }) {
           const status = await post("/api/update/save-round/status", { roundId: currentRound });
           if (status.failed) throw new Error("Eine Ansicht konnte nicht speichern oder die geöffneten Ansichten haben sich geändert.");
           if (status.complete) {
-            const result = await afterSave();
+            const result = await afterSave(currentRound);
             const checked = await post("/api/update/save-round/status", { roundId: currentRound });
             if (checked.failed || !checked.complete)
               throw new Error("Die Sicherung wurde erstellt, aber die Speicherabstimmung ist abgelaufen oder hat sich geändert. Bitte erneut versuchen.");

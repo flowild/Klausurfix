@@ -91,12 +91,17 @@ app.Use(async (context, next) =>
     }
 });
 
-// In preparation for a future update, serialize API mutations with a write gate.
-// No production endpoint can freeze it until all browser tabs are coordinated.
+// Coordination calls do not modify application data and must remain available
+// while a snapshot is taken, so view changes can invalidate the round.
 app.Use(async (context, next) =>
 {
+    var path = context.Request.Path;
+    bool coordination = path == "/api/update/view/register" || path == "/api/update/view/poll" ||
+        path == "/api/update/view/respond" || path == "/api/update/view/unregister" ||
+        path == "/api/update/save-round/begin" || path == "/api/update/save-round/status" ||
+        path == "/api/update/save-round/cancel" || path == "/api/update/coordinated-backup";
     if (!context.Request.Path.StartsWithSegments("/api") || HttpMethods.IsGet(context.Request.Method) ||
-        HttpMethods.IsHead(context.Request.Method) || HttpMethods.IsOptions(context.Request.Method))
+        HttpMethods.IsHead(context.Request.Method) || HttpMethods.IsOptions(context.Request.Method) || coordination)
     {
         await next();
         return;
@@ -751,6 +756,28 @@ app.MapPost("/api/update/save-round/status", (UpdateRoundRequest request, Update
 });
 app.MapPost("/api/update/save-round/cancel", (UpdateRoundRequest request, UpdateViewRegistry views) =>
     views.Cancel(request.RoundId ?? "") ? Results.Ok() : Results.NotFound());
+
+// This snapshot is not an installation permit: the registry cannot prove that
+// every browser view is registered, especially across a service restart.
+app.MapPost("/api/update/coordinated-backup", async (UpdateRoundRequest request, UpdateViewRegistry views,
+    UpdatePreparation preparation, HttpContext context) =>
+{
+    void ValidateRound()
+    {
+        var status = views.Status(request.RoundId ?? "");
+        if (!status.Complete) throw new InvalidOperationException("Die Speicherabstimmung ist unvollständig oder nicht mehr gültig.");
+    }
+    try
+    {
+        using var prepared = await preparation.PrepareAsync(context.RequestAborted, ValidateRound);
+        return Results.Ok(prepared.Backup);
+    }
+    catch (InvalidOperationException ex) { return Results.Conflict(new { error = ex.Message }); }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException)
+    {
+        return Results.Problem("Die verschlüsselte Update-Sicherung konnte nicht erstellt werden.");
+    }
+});
 
 // This prepares a recoverable snapshot only. It does not assert that browser inputs
 // have been flushed, authorize an installer, or stop the application.

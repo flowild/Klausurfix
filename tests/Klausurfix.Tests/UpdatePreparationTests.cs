@@ -5,6 +5,24 @@ using Klausurfix.Infrastructure.Backup;
 public class UpdatePreparationTests
 {
     [Fact]
+    public async Task InvalidatedRoundAfterBackupReleasesFreezeAndRejectsSnapshot()
+    {
+        var gate = new UpdateWriteGate();
+        var valid = true;
+        var preparation = new UpdatePreparation(gate, () =>
+        {
+            valid = false;
+            return new ManagedBackupInfo { FileName = "synthetisch.kfbak" };
+        });
+        await Assert.ThrowsAsync<InvalidOperationException>(() => preparation.PrepareAsync(validate: () =>
+        {
+            if (!valid) throw new InvalidOperationException("Abstimmung ungültig");
+        }));
+        using var writer = await gate.EnterWriteAsync();
+        Assert.NotNull(writer);
+    }
+
+    [Fact]
     public async Task BackupRunsWhileWritesAreFrozenAndLeaseReleasesThem()
     {
         var gate = new UpdateWriteGate();

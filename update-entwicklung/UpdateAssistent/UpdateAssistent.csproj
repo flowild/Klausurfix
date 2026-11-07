@@ -7,8 +7,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Klausurfix.Infrastructure\Klausurfix.Infrastructure.csproj" />
+    <ProjectReference Include="..\Versionsablage\Versionsablage.csproj" />
     <Compile Include="..\Paketpruefung\UpdatePackage.cs" Link="UpdatePackage.cs" />
     <EmbeddedResource Include="$(UpdatePackagePath)" LogicalName="Klausurfix.Update.zip" Condition="'$(UpdatePackagePath)' != ''" />
-    <EmbeddedResource Include="$(UpdatePublicKeyPath)" LogicalName="Klausurfix.Update.public.pem" Condition="'$(UpdatePublicKeyPath)' != ''" />
   </ItemGroup>
 </Project>

@@ -16,7 +16,7 @@ internal static class UpdatePackage
         return true;
     }
 
-    public static Manifest Verify(Stream package, string publicKey)
+    public static Manifest Verify(Stream package)
     {
     using var archive = new ZipArchive(package, ZipArchiveMode.Read, leaveOpen: true);
     var entries = new Dictionary<string, ZipArchiveEntry>(StringComparer.OrdinalIgnoreCase);
@@ -46,12 +46,6 @@ internal static class UpdatePackage
     }
 
     var manifestBytes = ReadBounded("manifest.json", 1_000_000);
-    var signature = ReadBounded("manifest.sig", 1024);
-    using var rsa = RSA.Create();
-    rsa.ImportFromPem(publicKey);
-    if (rsa.KeySize < 3072 || !rsa.VerifyData(manifestBytes, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pss))
-        throw new CryptographicException("Die Signatur ist ungültig oder der Schlüssel ist zu kurz.");
-
     var manifest = JsonSerializer.Deserialize<Manifest>(manifestBytes, new JsonSerializerOptions { PropertyNameCaseInsensitive = false })
         ?? throw new InvalidDataException("Manifest fehlt.");
     if (manifest.Format != 1 || manifest.Produkt != "Klausurfix" ||
@@ -59,7 +53,7 @@ internal static class UpdatePackage
         manifest.Architektur is not ("win-arm64" or "win-x64") || manifest.Dateien is null || manifest.Dateien.Count == 0)
         throw new InvalidDataException("Nicht unterstütztes Manifest.");
 
-    var expected = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "manifest.json", "manifest.sig" };
+    var expected = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "manifest.json" };
     long total = 0;
     foreach (var file in manifest.Dateien)
     {
