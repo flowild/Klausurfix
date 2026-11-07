@@ -7,6 +7,12 @@ using System.Diagnostics;
 /// </summary>
 public static class StoppedVersionInstaller
 {
+    public static StagedVersion Install(Stream package, string installationDirectory, string architecture)
+        => InstallCore(package, installationDirectory, architecture, StoppedServiceGuard.EnsureStopped, null);
+
+    public static StagedVersion Install(Stream package, string installationDirectory, string architecture, bool allowSameVersion)
+        => InstallCore(package, installationDirectory, architecture, StoppedServiceGuard.EnsureStopped, null, allowSameVersion);
+
     public static StagedVersion Install(string packagePath, string installationDirectory, string architecture)
         => InstallCore(packagePath, installationDirectory, architecture, StoppedServiceGuard.EnsureStopped);
 
@@ -25,7 +31,7 @@ public static class StoppedVersionInstaller
     }
 
     internal static StagedVersion InstallCore(Stream package, string installationDirectory, string architecture,
-        Action ensureStopped, Action<string>? start)
+        Action ensureStopped, Action<string>? start, bool allowSameVersion = false)
     {
         var expected = RuntimeInformation.OSArchitecture switch
         {
@@ -85,7 +91,7 @@ public static class StoppedVersionInstaller
             else if (File.Exists(backup))
                 throw new IOException("Eine nicht zugeordnete Starter-Sicherung liegt im Programmordner. Update abgebrochen.");
 
-            ActiveVersion.EnsureNewer(root, manifest.Version!, architecture);
+            ActiveVersion.EnsureNewer(root, manifest.Version!, architecture, allowSameVersion);
             var staged = VersionStager.Stage(package, root, architecture, true);
             // The launcher uses the same mutex; check again before the switch.
             ensureStopped();
@@ -101,7 +107,7 @@ public static class StoppedVersionInstaller
                 }
                 File.Move(journalTemp, pending);
                 File.Replace(candidate, starter, backup);
-                ActiveVersion.Activate(root, staged.Version, staged.Architecture);
+                ActiveVersion.Activate(root, staged.Version, staged.Architecture, allowSameVersion);
                 File.Delete(backup);
                 File.Delete(pending);
             }

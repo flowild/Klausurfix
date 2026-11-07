@@ -16,7 +16,7 @@ Eingaben und Formulare in allen Fenstern speichern; das Tray-Menü speichert sie
 nicht automatisch. Wird der Dienst beendet, verschwindet das Symbol.
 
 Die Anwendung und ihre Daten sind getrennt: Daten und verwaltete Sicherungen liegen
-standardmäßig unter %LOCALAPPDATA%\Klausurfix des jeweiligen Windows-Benutzers,
+standardmäßig unter Dokumente\Klausurfix des jeweiligen Windows-Benutzers,
 nicht im Programmordner. Das ZIP enthält keine eigenen Klausurdaten oder Sicherungen.
 Zum Übertragen eigener Daten eine verschlüsselte Sicherung und den getrennt
 aufbewahrten Wiederherstellungsschlüssel verwenden. Exporte und Sicherungskopien
@@ -29,7 +29,7 @@ den Wiederherstellungsschlüssel bereithalten. Die umgestellte Arbeitsdatenbank
 kann mit Version 0.1 nicht mehr gelesen werden. Zum Aktualisieren die bisherige
 App mit „Beenden“ schließen, das neue ZIP in einen eigenen Ordner entpacken
 und dort Klausurfix.exe starten. Die vorhandenen Arbeitsdaten bleiben im
-Windows-Benutzerprofil. Eine bestehende Desktop-Verknüpfung verweist weiterhin
+Dokumentenordner. Eine bestehende Desktop-Verknüpfung verweist weiterhin
 auf den alten Programmordner und muss bei Bedarf angepasst werden.
 
 Diese Version enthält einen Starter für spätere Offline-Updates. Vor einem

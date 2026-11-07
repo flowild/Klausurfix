@@ -47,7 +47,7 @@ internal static class Program
                 var deadline = Stopwatch.StartNew();
                 while (deadline.Elapsed < TimeSpan.FromSeconds(120) && !IsReady())
                 {
-                    if (backend.HasExited) throw new InvalidOperationException("Klausurfix konnte nicht gestartet werden. Bitte die passende Version für die Windows-Architektur verwenden.");
+                    if (backend.HasExited) throw new InvalidOperationException("Der lokale Klausurfix-Dienst wurde beim Start beendet. Bitte prüfen Sie, ob der lokale Datenordner verfügbar und nicht synchronisiert ist und ob eine weitere Klausurfix-Version läuft.");
                     Thread.Sleep(300);
                 }
                 if (!IsReady() || !IsPageAvailable()) throw new InvalidOperationException("Klausurfix wurde nicht rechtzeitig bereit. Bitte erneut versuchen.");

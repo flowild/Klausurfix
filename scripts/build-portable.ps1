@@ -1,5 +1,5 @@
 param(
-    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$PackageVersion = '0.1.9',
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$PackageVersion = '0.2.0',
     [switch]$UpdateOnly
 )
 
@@ -15,7 +15,7 @@ $packageBuilder = Join-Path $projectRoot 'update-entwicklung\Paketbau\Paketbau.c
 $assistantBuilder = Join-Path $projectRoot 'update-entwicklung\erzeuge-pruef-assistent.ps1'
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
 foreach ($rid in $runtimes) {
-    $names = if ($UpdateOnly) { @("Klausurfix-Update-$packageVersion-$rid.exe") } else { @("Klausurfix-$packageVersion-$rid.zip", "Klausurfix-Update-$packageVersion-$rid.zip", "Klausurfix-Update-$packageVersion-$rid.exe") }
+    $names = if ($UpdateOnly) { @("Klausurfix-Update-$packageVersion-$rid.exe") } else { @("Klausurfix-$packageVersion-$rid.zip", "Klausurfix-Update-$packageVersion-$rid.zip", "Klausurfix-Update-$packageVersion-$rid.exe", "Klausurfix-Setup-$packageVersion-$rid.exe") }
     foreach ($name in $names) {
         if (Test-Path -LiteralPath (Join-Path $outputRoot $name)) { throw "Ausgabedatei existiert bereits: $name" }
     }
@@ -84,6 +84,15 @@ try {
         $updateExe = Join-Path $outputRoot "Klausurfix-Update-$packageVersion-$rid.exe"
         & powershell -NoProfile -ExecutionPolicy Bypass -File $assistantBuilder -Paket $updatePackage -Architektur $rid -Ausgabedatei $updateExe
         if ($LASTEXITCODE -ne 0) { throw "Update-EXE konnte nicht erstellt werden: $rid" }
+        if (-not $UpdateOnly) {
+            $installerBuild = Join-Path $workRoot "installer-$rid"
+            $installerProject = Join-Path $projectRoot 'installer\Klausurfix.Installer.csproj'
+            & dotnet publish $installerProject -c Release -r $rid --self-contained true -o $installerBuild `
+                -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+                "-p:UpdatePackagePath=$updatePackage" -p:DebugType=None -p:NuGetAudit=false
+            if ($LASTEXITCODE -ne 0) { throw "Installer konnte nicht erstellt werden: $rid" }
+            [IO.File]::Move((Join-Path $installerBuild 'Klausurfix.Installer.exe'), (Join-Path $outputRoot "Klausurfix-Setup-$packageVersion-$rid.exe"))
+        }
     }
 } finally {
     # Only remove the unique staging directory created above, after verifying its resolved location.

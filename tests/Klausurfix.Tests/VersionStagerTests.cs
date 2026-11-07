@@ -9,6 +9,51 @@ using System.Runtime.InteropServices;
 public class VersionStagerTests
 {
     [Fact]
+    public void SameVersionRequiresOptInAndVerifiesExistingFiles()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "klausurfix-same-version-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var arch = RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "win-arm64" : "win-x64";
+            var install = Path.Combine(root, "installation");
+            Directory.CreateDirectory(install);
+            File.WriteAllText(Path.Combine(install, "Klausurfix.exe"), "alter starter");
+            File.WriteAllText(Path.Combine(install, "update-starter-v1.txt"), "marker");
+            File.WriteAllText(Path.Combine(install, "basis-version.txt"), "0.1.5|" + arch);
+            var package = CreatePackage(root, arch);
+            using (var first = File.OpenRead(package))
+                StoppedVersionInstaller.InstallCore(first, install, arch, () => { }, null);
+            using (var same = File.OpenRead(package))
+                Assert.Throws<InvalidOperationException>(() => StoppedVersionInstaller.InstallCore(same, install, arch, () => { }, null));
+            using (var same = File.OpenRead(package))
+                StoppedVersionInstaller.InstallCore(same, install, arch, () => { }, null, allowSameVersion: true);
+            Assert.Equal("0.2.0|" + arch, File.ReadAllText(Path.Combine(install, "aktive-version.txt")));
+            var backend = ActiveVersion.ResolveBackend(install);
+            File.WriteAllText(backend, "verändert");
+            using (var changed = File.OpenRead(package))
+                Assert.Throws<InvalidDataException>(() => StoppedVersionInstaller.InstallCore(changed, install, arch, () => { }, null, allowSameVersion: true));
+            Assert.Equal("verändert", File.ReadAllText(backend));
+            Assert.False(File.Exists(Path.Combine(install, ActiveVersion.PendingUpdate)));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
+    public void SameVersionOptionNeverAllowsDowngrade()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "klausurfix-no-downgrade-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "aktive-version.txt"), "0.3.0|win-x64");
+            Assert.Throws<InvalidOperationException>(() => ActiveVersion.EnsureNewer(root, "0.2.0", "win-x64", allowSameVersion: true));
+            Assert.Throws<InvalidOperationException>(() => ActiveVersion.EnsureNewer(root, "0.3.0", "win-arm64", allowSameVersion: true));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
     public void WorkflowDoesNotInstallWhenBackupVerificationFails()
     {
         var called = false;

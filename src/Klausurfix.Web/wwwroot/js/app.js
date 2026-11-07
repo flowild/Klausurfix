@@ -352,21 +352,26 @@ document.getElementById("lockBtn").addEventListener("click", async () => {
   }
 });
 
+function showStoppedScreen() {
+  state.isUnlocked = false;
+  state.activeExam = null;
+  state.activeExamEntries = [];
+  state.classes = [];
+  state.exams = [];
+  state.examListView = "dashboard";
+  document.getElementById("matrixTableContainer").replaceChildren();
+  document.getElementById("dashboardExamsList").replaceChildren();
+  document.getElementById("archiveExamsList").replaceChildren();
+  switchView("stopped");
+}
+
+window.addEventListener("klausurfix:shutdown-complete", showStoppedScreen);
+
 document.getElementById("shutdownBtn").addEventListener("click", async () => {
   try {
     if (!confirm("Klausurfix jetzt sichern und beenden? Bitte offene Formulare vorher speichern oder schließen.")) return;
     showToast("Eingaben werden gespeichert und eine Sicherung erstellt …", "info");
     await updateSave.request(roundId => api.shutdown(roundId), { shutdown: true });
-    state.isUnlocked = false;
-    state.activeExam = null;
-    state.activeExamEntries = [];
-    state.classes = [];
-    state.exams = [];
-    state.examListView = "dashboard";
-    document.getElementById("matrixTableContainer").replaceChildren();
-    document.getElementById("dashboardExamsList").replaceChildren();
-    document.getElementById("archiveExamsList").replaceChildren();
-    switchView("stopped");
   } catch (err) {
     showToast(err.message || "Klausurfix konnte nicht beendet werden.", "error");
   }

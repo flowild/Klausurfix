@@ -28,7 +28,7 @@ public static class ActiveVersion
         return VersionBackend(root, version, architecture);
     }
 
-    public static void Activate(string root, string version, string architecture)
+    public static void Activate(string root, string version, string architecture, bool allowSameVersion = false)
     {
         root = Path.GetFullPath(root);
         var selection = version + "|" + architecture;
@@ -37,7 +37,7 @@ public static class ActiveVersion
         if (!File.Exists(backend) || !File.Exists(Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(backend)!)!, "Klausurfix.exe")))
             throw new FileNotFoundException("Die neue Programmversion ist nicht vollständig.");
         var marker = Path.Combine(root, Marker);
-        EnsureNewer(root, parsed.Version, parsed.Architecture);
+        EnsureNewer(root, parsed.Version, parsed.Architecture, allowSameVersion);
         var temp = Path.Combine(root, ".aktive-version-" + Guid.NewGuid().ToString("N") + ".tmp");
         try
         {
@@ -52,14 +52,15 @@ public static class ActiveVersion
         finally { if (File.Exists(temp)) File.Delete(temp); }
     }
 
-    internal static void EnsureNewer(string root, string version, string architecture)
+    internal static void EnsureNewer(string root, string version, string architecture, bool allowSameVersion = false)
     {
         var parsed = Parse(version + "|" + architecture);
         var marker = Path.Combine(root, Marker);
         if (File.Exists(marker))
         {
             var previous = Parse(File.ReadAllText(marker));
-            if (previous.Architecture != parsed.Architecture || Version.Parse(previous.Version) >= Version.Parse(parsed.Version))
+            if (previous.Architecture != parsed.Architecture || Version.Parse(previous.Version) > Version.Parse(parsed.Version) ||
+                (!allowSameVersion && Version.Parse(previous.Version) == Version.Parse(parsed.Version)))
                 throw new InvalidOperationException("Eine gleich alte oder ältere Version wird nicht automatisch aktiviert.");
         }
         else
@@ -71,7 +72,8 @@ public static class ActiveVersion
             if (input.Length > 100) throw new InvalidDataException("Die installierte Ausgangsversion ist ungültig.");
             using var reader = new StreamReader(input, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
             var previous = Parse(reader.ReadToEnd());
-            if (previous.Architecture != parsed.Architecture || Version.Parse(previous.Version) >= Version.Parse(parsed.Version))
+            if (previous.Architecture != parsed.Architecture || Version.Parse(previous.Version) > Version.Parse(parsed.Version) ||
+                (!allowSameVersion && Version.Parse(previous.Version) == Version.Parse(parsed.Version)))
                 throw new InvalidOperationException("Die Ausgangsversion passt nicht oder das Update ist nicht neuer.");
         }
     }
