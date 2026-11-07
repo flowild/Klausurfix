@@ -215,6 +215,23 @@ document.getElementById("copyRecoveryKeyBtn").addEventListener("click", () => {
   showToast("Wiederherstellungsschlüssel in die Zwischenablage kopiert.", "info");
 });
 
+document.getElementById("downloadRecoveryKeyBtn").addEventListener("click", () => {
+  const key = document.getElementById("setupRecoveryKey").value;
+  if (!key) {
+    showToast("Der Wiederherstellungsschlüssel ist noch nicht verfügbar.", "error");
+    return;
+  }
+  const content = `Klausurfix – Wiederherstellungsschlüssel\r\n\r\n${key}\r\n\r\nBewahren Sie diesen Schlüssel sicher auf. Er wird benötigt, um Sicherungen wiederherzustellen oder bei vergessener App-PIN auf die Daten zuzugreifen.\r\nDieses Dokument enthält den Schlüssel unverschlüsselt.\r\n`;
+  const url = URL.createObjectURL(new Blob(["\uFEFF", content], { type: "text/plain;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "Klausurfix-Wiederherstellungsschluessel.txt";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+
 // Unlock Screen Logic (Numpad + Keyboard)
 let pinSubmissionInProgress = false;
 let pinSubmissionQueued = false;

@@ -87,20 +87,21 @@
           </div>
 
           <div class="form-group">
-            <label class="form-label">Ihr persönlicher Wiederherstellungsschlüssel</label>
+            <label class="form-label" for="setupRecoveryKey">Ihr persönlicher Wiederherstellungsschlüssel</label>
             <div style="display: flex; gap: 0.5rem; align-items: center;">
               <input type="text" id="setupRecoveryKey" class="form-control" readonly style="font-family: monospace; font-weight: 700; letter-spacing: 1px; background-color: var(--gray-100);">
               <button type="button" class="btn btn-secondary" id="copyRecoveryKeyBtn" title="In Zwischenablage kopieren">Kopieren</button>
             </div>
+            <button type="button" class="btn btn-secondary" id="downloadRecoveryKeyBtn" style="margin-top: 0.5rem;">Als Textdokument herunterladen</button>
             <p class="form-hint" style="color: var(--danger); font-weight: 500; margin-top: 0.5rem;">
-              Wichtig: Notieren Sie diesen Schlüssel sicher! Er wird benötigt, um Sicherungen nach einer Neuinstallation oder bei vergessener PIN wiederherzustellen.
+              Bewahren Sie diesen Schlüssel sicher auf. Er wird für die Wiederherstellung Ihrer Sicherungen und bei vergessener PIN benötigt. Das Textdokument enthält den Schlüssel unverschlüsselt; speichern Sie es an einem geschützten Ort außerhalb synchronisierter Ordner.
             </p>
           </div>
 
           <div class="form-group" style="display: flex; align-items: flex-start; gap: 0.75rem; margin-top: 1rem;">
             <input type="checkbox" id="setupRecoveryConfirm" required style="width: 20px; height: 20px; margin-top: 2px;">
             <label for="setupRecoveryConfirm" style="font-size: 0.9rem; color: var(--gray-700); cursor: pointer;">
-              Ich habe den Wiederherstellungsschlüssel sicher notiert oder aufgeschrieben.
+              Ich habe den Wiederherstellungsschlüssel sicher aufbewahrt.
             </label>
           </div>
 

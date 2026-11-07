@@ -68,7 +68,7 @@ Klausurfix bindet ausschließlich an den lokalen Loopback-Adapter und wird im Br
 ### 2. Ersteinrichtung
 1. Beim ersten Start öffnet sich der Einrichtungs-Assistent.
 2. Legen Sie Ihre **App-PIN** fest (mindestens 6 Ziffern).
-3. Notieren Sie sich den generierten **Wiederherstellungsschlüssel**.
+3. Notieren Sie sich den generierten **Wiederherstellungsschlüssel** oder laden Sie ihn als Textdokument herunter. Das Dokument enthält den Schlüssel unverschlüsselt; bewahren Sie es geschützt und außerhalb synchronisierter Ordner auf.
 4. Nach Bestätigung startet Klausurfix direkt in die Klausurenübersicht. Ein Klick auf eine Klausur öffnet ihre Eingabetabelle.
 
 Beim Entsperren wird nach der sechsten Ziffer automatisch ein Entsperrversuch durchgeführt. Ist die PIN länger, weitere Ziffern eingeben und mit **Entsperren** bestätigen. Die automatische Prüfung zählt bei einer längeren PIN als Fehlversuch und kann bei wiederholter Eingabe die übliche Verzögerung auslösen.

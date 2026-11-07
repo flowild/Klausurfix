@@ -39,6 +39,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File update-entwicklung/erzeuge-p
 
 Der Build prüft das Paket vorab, bettet es ein und überschreibt keine vorhandene Ausgabedatei. Der Assistent ist noch nicht für den produktiven Einsatz bestimmt.
 
+Für Version 0.1.9 wurden auf ausdrücklichen Wunsch nur die beiden einzelnen Update-EXE erzeugt. Mit `scripts/build-portable.ps1 -PackageVersion 0.1.9 -UpdateOnly` entstehen die Anwendung und das geprüfte Update-ZIP als temporäre Build-Zwischenprodukte; separate ZIP-Dateien bleiben nicht zurück. Beide Zwischenpakete wurden mit je 423 Dateien geprüft. Der tatsächliche Einzeldatei-Update-Ablauf und der Surface-Test stehen weiterhin aus.
+
 Die Pakettests erzeugen nur kurzlebige synthetische Dateien im temporären Ordner:
 
 ```powershell

@@ -1,5 +1,6 @@
 param(
-    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$PackageVersion = '0.1.8'
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$PackageVersion = '0.1.9',
+    [switch]$UpdateOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -14,7 +15,8 @@ $packageBuilder = Join-Path $projectRoot 'update-entwicklung\Paketbau\Paketbau.c
 $assistantBuilder = Join-Path $projectRoot 'update-entwicklung\erzeuge-pruef-assistent.ps1'
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
 foreach ($rid in $runtimes) {
-    foreach ($name in @("Klausurfix-$packageVersion-$rid.zip", "Klausurfix-Update-$packageVersion-$rid.zip", "Klausurfix-Update-$packageVersion-$rid.exe")) {
+    $names = if ($UpdateOnly) { @("Klausurfix-Update-$packageVersion-$rid.exe") } else { @("Klausurfix-$packageVersion-$rid.zip", "Klausurfix-Update-$packageVersion-$rid.zip", "Klausurfix-Update-$packageVersion-$rid.exe") }
+    foreach ($name in $names) {
         if (Test-Path -LiteralPath (Join-Path $outputRoot $name)) { throw "Ausgabedatei existiert bereits: $name" }
     }
 }
@@ -24,7 +26,7 @@ New-Item -ItemType Directory -Path $workRoot | Out-Null
 try {
     foreach ($rid in $runtimes) {
         $zipPath = Join-Path $outputRoot "Klausurfix-$packageVersion-$rid.zip"
-        if (Test-Path -LiteralPath $zipPath) { throw "Ausgabedatei existiert bereits: $zipPath" }
+        if (-not $UpdateOnly -and (Test-Path -LiteralPath $zipPath)) { throw "Ausgabedatei existiert bereits: $zipPath" }
         $packageRoot = Join-Path $workRoot "Klausurfix-$packageVersion-$rid"
         $appDir = Join-Path $packageRoot 'app'
         $buildDir = Join-Path $workRoot "build-$rid"
@@ -72,9 +74,11 @@ try {
         if (Test-Path -LiteralPath $questPackage) { Copy-Item -LiteralPath $questPackage -Destination (Join-Path $licensesDir 'QuestPDF-Abhaengigkeiten') -Recurse }
         $inventory | Sort-Object | Set-Content -LiteralPath (Join-Path $licensesDir 'Paketliste.txt') -Encoding UTF8
 
-        Compress-Archive -LiteralPath $packageRoot -DestinationPath $zipPath -CompressionLevel Optimal
-        Write-Output "Erstellt: $zipPath"
-        $updatePackage = Join-Path $outputRoot "Klausurfix-Update-$packageVersion-$rid.zip"
+        if (-not $UpdateOnly) {
+            Compress-Archive -LiteralPath $packageRoot -DestinationPath $zipPath -CompressionLevel Optimal
+            Write-Output "Erstellt: $zipPath"
+        }
+        $updatePackage = Join-Path $(if ($UpdateOnly) { $workRoot } else { $outputRoot }) "Klausurfix-Update-$packageVersion-$rid.zip"
         & dotnet run --project $packageBuilder -- $packageRoot $packageVersion $rid $updatePackage
         if ($LASTEXITCODE -ne 0) { throw "Updatepaket konnte nicht erstellt werden: $rid" }
         $updateExe = Join-Path $outputRoot "Klausurfix-Update-$packageVersion-$rid.exe"
