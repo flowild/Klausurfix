@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $packageVersion = $PackageVersion
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$outputRoot = Join-Path $projectRoot 'release'
+$outputRoot = Join-Path (Join-Path $projectRoot 'release') $packageVersion
 $projectPath = Join-Path $projectRoot 'src\Klausurfix.Web\Klausurfix.Web.csproj'
 $launcherPath = Join-Path $projectRoot 'src\Klausurfix.Launcher\Klausurfix.Launcher.csproj'
 $nugetRoot = Join-Path $env:USERPROFILE '.nuget\packages'
