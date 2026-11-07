@@ -39,6 +39,7 @@ builder.Services.AddSingleton<DatabaseContext>();
 builder.Services.AddSingleton<BackupService>();
 builder.Services.AddSingleton<AutomaticBackupWorker>();
 builder.Services.AddHostedService(services => services.GetRequiredService<AutomaticBackupWorker>());
+builder.Services.AddHostedService<TrayShutdownWorker>();
 builder.Services.AddSingleton<CleanupService>();
 builder.Services.AddSingleton<PdfExportService>();
 builder.Services.AddSingleton<DocxExportService>();

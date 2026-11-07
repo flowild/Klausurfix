@@ -1,5 +1,5 @@
 param(
-    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$PackageVersion = '0.1.5'
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$PackageVersion = '0.1.8'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -61,7 +61,7 @@ try {
                 foreach ($file in $files) { Copy-Item -LiteralPath $file.FullName -Destination $licensePackageDir }
             }
         }
-        foreach ($runtimeName in @("microsoft.netcore.app.runtime.$rid", "microsoft.aspnetcore.app.runtime.$rid")) {
+        foreach ($runtimeName in @("microsoft.netcore.app.runtime.$rid", "microsoft.aspnetcore.app.runtime.$rid", "microsoft.windowsdesktop.app.runtime.$rid")) {
             $runtimePackage = Get-ChildItem -LiteralPath (Join-Path $nugetRoot $runtimeName) -Directory | Sort-Object Name -Descending | Select-Object -First 1
             if (-not $runtimePackage) { throw "Laufzeitlizenz fehlt: $runtimeName" }
             $licensePackageDir = Join-Path $licensesDir "$runtimeName-$($runtimePackage.Name)"

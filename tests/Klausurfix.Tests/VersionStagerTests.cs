@@ -64,8 +64,67 @@ public class VersionStagerTests
                 started = true;
             });
             Assert.True(started);
+            Assert.Equal("starter", File.ReadAllText(Path.Combine(install, "Klausurfix.exe")));
+            Assert.False(File.Exists(Path.Combine(install, ActiveVersion.PendingUpdate)));
             Assert.Equal(Path.Combine(result.Directory, "app", "Klausurfix.Web.exe"), ActiveVersion.ResolveBackend(install));
             Assert.Equal("dienst", File.ReadAllText(ActiveVersion.ResolveBackend(install)));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void InterruptedStarterSwitchCanBeResumed(bool activationAlreadyCompleted)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "klausurfix-resume-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var arch = RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "win-arm64" : "win-x64";
+            var install = Path.Combine(root, "installation");
+            Directory.CreateDirectory(install);
+            File.WriteAllText(Path.Combine(install, "Klausurfix.exe"), "starter");
+            File.WriteAllText(Path.Combine(install, ".starter-vor-update.bak"), "vorher");
+            File.WriteAllText(Path.Combine(install, "update-starter-v1.txt"), "synthetisch");
+            File.WriteAllText(Path.Combine(install, "basis-version.txt"), "0.1.5|" + arch);
+            var package = CreatePackage(root, arch);
+            VersionStager.Stage(package, install, arch);
+            if (activationAlreadyCompleted) ActiveVersion.Activate(install, "0.2.0", arch);
+            File.WriteAllText(Path.Combine(install, ActiveVersion.PendingUpdate), "0.2.0|" + arch);
+            Assert.Throws<InvalidOperationException>(() => ActiveVersion.ResolveBackend(install));
+            using var stream = File.OpenRead(package);
+            var started = false;
+            StoppedVersionInstaller.InstallCore(stream, install, arch, () => { }, _ => started = true);
+            Assert.True(started);
+            Assert.Equal("starter", File.ReadAllText(Path.Combine(install, "Klausurfix.exe")));
+            Assert.False(File.Exists(Path.Combine(install, ActiveVersion.PendingUpdate)));
+            Assert.False(File.Exists(Path.Combine(install, ".starter-vor-update.bak")));
+            Assert.Contains("0.2.0", ActiveVersion.ResolveBackend(install));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
+    public void RetryRejectsChangedStagedFilesBeforeReplacingStarter()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "klausurfix-resume-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var arch = RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "win-arm64" : "win-x64";
+            var install = Path.Combine(root, "installation");
+            Directory.CreateDirectory(install);
+            File.WriteAllText(Path.Combine(install, "Klausurfix.exe"), "vorher");
+            File.WriteAllText(Path.Combine(install, "update-starter-v1.txt"), "synthetisch");
+            File.WriteAllText(Path.Combine(install, "basis-version.txt"), "0.1.5|" + arch);
+            var package = CreatePackage(root, arch);
+            var staged = VersionStager.Stage(package, install, arch);
+            File.WriteAllText(Path.Combine(staged.Directory, "Klausurfix.exe"), "verändert");
+            using var stream = File.OpenRead(package);
+            Assert.Throws<InvalidDataException>(() => StoppedVersionInstaller.InstallCore(stream, install, arch, () => { }, null));
+            Assert.Equal("vorher", File.ReadAllText(Path.Combine(install, "Klausurfix.exe")));
+            Assert.False(File.Exists(Path.Combine(install, "aktive-version.txt")));
         }
         finally { Directory.Delete(root, recursive: true); }
     }

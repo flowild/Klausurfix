@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using Klausurfix.Infrastructure.Backup;
+using Klausurfix.Infrastructure.Storage;
 
 internal static class Program
 {
@@ -16,6 +17,7 @@ internal static class Program
 internal sealed class UpdateWindow : Form
 {
     private readonly Label _status;
+    private readonly Label _selectedBackup;
     private readonly TextBox _recoveryKey;
     private readonly Button _verifyBackup;
     private readonly Button _install;
@@ -25,23 +27,37 @@ internal sealed class UpdateWindow : Form
     {
         Text = "Klausurfix Update – Entwicklungsstand";
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(540, 300);
-        Size = new Size(650, 360);
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(20), ColumnCount = 1, RowCount = 4 };
+        MinimumSize = new Size(540, 380);
+        Size = new Size(700, 460);
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(20), ColumnCount = 1, RowCount = 5 };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.Controls.Add(new Label { Text = "Klausurfix-Update prüfen", AutoSize = true, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(0, 0, 0, 15) });
         _status = new Label { Text = "Paket wird geprüft …", Dock = DockStyle.Fill, AutoEllipsis = false };
         layout.Controls.Add(_status);
+        _selectedBackup = new Label { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 0, 0, 10), MaximumSize = new Size(620, 0) };
+        layout.Controls.Add(_selectedBackup);
+        try
+        {
+            var latest = ManagedBackupLocator.FindLatest(AppPaths.BackupsDirectory);
+            if (latest is not null) SelectBackup(latest.FullName, true);
+            else _selectedBackup.Text = "Keine verwaltete Sicherung gefunden. Bitte eine Sicherung auswählen.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            _selectedBackup.Text = "Der Sicherungsordner konnte nicht gelesen werden. Bitte eine Sicherung auswählen.";
+        }
         var backupControls = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = true };
-        var chooseBackup = new Button { Text = "Sicherung auswählen", AutoSize = true };
+        var chooseBackup = new Button { Text = "Sicherung ändern …", AutoSize = true };
         chooseBackup.Click += (_, _) =>
         {
             using var dialog = new OpenFileDialog { Filter = "Klausurfix-Sicherung (*.kfbak)|*.kfbak", CheckFileExists = true };
+            if (Directory.Exists(AppPaths.BackupsDirectory)) dialog.InitialDirectory = AppPaths.BackupsDirectory;
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
-            _backupPath = dialog.FileName;
+            SelectBackup(dialog.FileName, false);
             _status.Text = "Sicherung ausgewählt. Bitte Wiederherstellungsschlüssel eingeben und prüfen.";
         };
         _recoveryKey = new TextBox { Width = 200, UseSystemPasswordChar = true, PlaceholderText = "Wiederherstellungsschlüssel" };
@@ -59,6 +75,13 @@ internal sealed class UpdateWindow : Form
         layout.Controls.Add(close);
         Controls.Add(layout);
         Shown += async (_, _) => await CheckPackageAsync();
+    }
+
+    private void SelectBackup(string path, bool automatic)
+    {
+        _backupPath = path;
+        var date = File.GetCreationTime(path);
+        _selectedBackup.Text = $"{(automatic ? "Neueste verwaltete Sicherung vorausgewählt" : "Ausgewählte Sicherung")}:\n{path}\nErstellt: {date:g} · Vor der Installation wird die Datei geprüft.";
     }
 
     private async Task InstallAsync()
@@ -141,7 +164,7 @@ internal sealed class UpdateWindow : Form
                 if (manifest.Architektur != expected) throw new InvalidOperationException($"Dieses Paket ist für {manifest.Architektur}, dieses Windows benötigt {expected}.");
                 return manifest;
             });
-            _status.Text = $"✓ Klausurfix ist beendet und Port 5000 frei\n✓ Paketinhalt geprüft\n✓ Windows-Architektur: {result.Architektur}\n✓ Enthaltene Version: {result.Version}\n\nBitte Sicherung auswählen und Wiederherstellungsschlüssel eingeben.";
+            _status.Text = $"✓ Klausurfix ist beendet und Port 5000 frei\n✓ Paketinhalt geprüft\n✓ Windows-Architektur: {result.Architektur}\n✓ Enthaltene Version: {result.Version}\n\nBitte die ausgewählte Sicherung kontrollieren und den Wiederherstellungsschlüssel eingeben.";
         }
         catch (Exception ex)
         {

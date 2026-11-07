@@ -32,8 +32,10 @@ internal static class Program
                 var currentService = Process.GetProcessesByName("Klausurfix.Web");
                 try
                 {
-                    if (!currentService.Any(p => string.Equals(p.MainModule?.FileName, appPath, StringComparison.OrdinalIgnoreCase)))
+                    var matching = currentService.FirstOrDefault(p => string.Equals(p.MainModule?.FileName, appPath, StringComparison.OrdinalIgnoreCase));
+                    if (matching is null)
                         throw new InvalidOperationException("Eine andere Klausurfix-Version läuft bereits. Bitte diese in der Anwendung über 'Beenden' schließen und erneut starten.");
+                    backend = Process.GetProcessById(matching.Id);
                 }
                 finally { foreach (var process in currentService) process.Dispose(); }
             }
@@ -52,7 +54,17 @@ internal static class Program
             }
             ready = true;
             TryCreateDesktopShortcut();
+            using var trayMutex = new Mutex(true, $@"Local\KlausurfixTray-{backend!.Id}", out bool ownsTray);
+            if (!ownsTray)
+            {
+                OpenBrowser();
+                return 0;
+            }
+            mutex.ReleaseMutex();
+            held = false;
+            using var tray = new TrayApplicationContext(backend!, OpenBrowser);
             OpenBrowser();
+            System.Windows.Forms.Application.Run(tray);
             return 0;
         }
         catch (Exception ex)
@@ -104,6 +116,7 @@ internal static class Program
             try
             {
                 link.SetPath(Environment.ProcessPath!);
+                link.SetIconLocation(Environment.ProcessPath!, 0);
                 link.SetWorkingDirectory(AppContext.BaseDirectory);
                 link.SetDescription("Klausurfix lokal starten");
                 ((IPersistFile)link).Save(path, false);
@@ -124,7 +137,8 @@ internal static class Program
         void GetWorkingDirectory();
         void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string directory);
         void GetArguments(); void SetArguments(); void GetHotkey(); void SetHotkey();
-        void GetShowCmd(); void SetShowCmd(); void GetIconLocation(); void SetIconLocation();
+        void GetShowCmd(); void SetShowCmd(); void GetIconLocation();
+        void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string path, int iconIndex);
         void SetRelativePath(); void Resolve();
         void SetPath([MarshalAs(UnmanagedType.LPWStr)] string path);
     }

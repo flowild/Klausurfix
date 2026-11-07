@@ -45,15 +45,19 @@ Für die portable Version ab 0.1.4 das passende ZIP vollständig entpacken und `
 
 Zum Aktualisieren von 0.1 zunächst dort eine verschlüsselte Sicherung erstellen und die App mit **Beenden** schließen. Die neue Version in einen eigenen Programmordner entpacken und daraus starten; vorhandene Arbeitsdaten werden beim Entsperren migriert. Die umgestellte Arbeitsdatenbank ist mit 0.1 nicht mehr lesbar. Eine bisherige Desktop-Verknüpfung verweist weiterhin auf den alten Programmordner und muss angepasst werden.
 
-Mit `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1` entstehen für `win-x64` und `win-arm64` jeweils ein App-ZIP, ein Updatepaket und eine Update-EXE unter `release/`. Die voreingestellte Ausgangsversion 0.1.5 enthält den Starter für spätere Updates; die Update-EXE derselben Version ist für eine ältere kompatible Ausgangsversion bestimmt und aktualisiert 0.1.5 nicht erneut auf 0.1.5. Der Umstieg von 0.1.4 erfolgt weiterhin wie oben beschrieben durch Entpacken in einen neuen Ordner. Die Update-EXE und der Ablauf auf dem Surface sind noch nicht vollständig geprüft. Die Lizenzbedingungen liegen im Paket unter `Lizenzen`. Für QuestPDF ist im Code die Community-Lizenz eingestellt; deren Voraussetzungen sind für den jeweiligen Einsatz zu prüfen.
+Mit `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1` entstehen für `win-x64` und `win-arm64` jeweils ein App-ZIP, ein Updatepaket und eine Update-EXE unter `release/`. Die voreingestellte Version ist 0.1.8; die Update-EXE ist für eine ältere kompatible Ausgangsversion bestimmt und aktualisiert keine gleich alte oder neuere Version. Der Umstieg von 0.1.4 erfolgt weiterhin wie oben beschrieben durch Entpacken in einen neuen Ordner. Die Update-EXE und der Ablauf auf dem Surface sind noch nicht vollständig geprüft. Die Lizenzbedingungen liegen im Paket unter `Lizenzen`. Für QuestPDF ist im Code die Community-Lizenz eingestellt; deren Voraussetzungen sind für den jeweiligen Einsatz zu prüfen.
 
 Doppelklick auf `Klausurfix.exe` startet den lokalen Hintergrunddienst ohne sichtbares Konsolenfenster und öffnet die Anwendung in Microsoft Edge. Wenn Edge nicht gefunden wird, öffnet sich der Standardbrowser. Ein weiterer Start verwendet die bereits laufende Instanz derselben Programmversion. Eine andere laufende Version muss zunächst in der Anwendung beendet werden.
 
-Beim Start wird nach Möglichkeit eine Desktop-Verknüpfung erstellt. Die Verknüpfung verweist auf den aktuellen Programmordner; nach einem Verschieben des Ordners muss sie neu erstellt werden. Eine bereits vorhandene Verknüpfung gleichen Namens wird nicht überschrieben.
+Beim Start wird nach Möglichkeit eine Desktop-Verknüpfung mit dem Klausurfix-Icon erstellt. Die Verknüpfung verweist auf den aktuellen Programmordner; nach einem Verschieben des Ordners muss sie neu erstellt werden. Eine bereits vorhandene Verknüpfung gleichen Namens wird nicht überschrieben und erhält daher nicht automatisch das neue Icon.
 
 Für die Ausführung aus dem Quellordner wird das [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) benötigt. Auf einem Surface mit Snapdragon-Prozessor sollte die ARM64-Version installiert werden. Beim ersten Start und nach dem Wechsel von .NET 9 werden Projektabhängigkeiten eingerichtet; dafür kann eine Internetverbindung erforderlich sein. Nach erfolgreicher Einrichtung ist der Betrieb offline möglich. Startfehler werden in einem Dialog angezeigt.
 
 Mit **Beenden** in der Anwendung werden offene Eingaben gespeichert und der lokale Hintergrunddienst beendet. Anschließend kann der Browser-Tab geschlossen werden.
+
+Solange der über `Klausurfix.exe` gestartete Dienst läuft, erscheint das Klausurfix-Symbol im Windows-Infobereich. Über das Rechtsklickmenü öffnet **Öffnen** die Anwendung erneut im Browser. **Beenden** beendet nach einer Bestätigung den Dienst; zuvor müssen offene Eingaben und Formulare in allen Fenstern selbst gespeichert werden. Das Tray-Menü speichert sie nicht automatisch. Nach dem Beenden verschwindet das Symbol.
+
+Das Tray-Symbol gehört zum Starter. Der neu entwickelte Update-Assistent tauscht auch den Starter aus, sodass Änderungen am Tray und am EXE-Icon mitgeliefert werden. Ältere, bereits gebaute Update-EXE-Dateien besitzen diese Funktion noch nicht.
 
 Für die Entwicklung alternativ im Terminal:
 ```bash
@@ -91,7 +95,7 @@ Automatische und neu erstellte manuelle Sicherungen verwenden Sicherungsformat 2
 
 ## Projektstruktur
 
-Die Offline-Update-Funktion wird unter `update-entwicklung/` entwickelt. Ein Assistent kann nach manueller Sicherung und Beendigung bei kompatiblem Starter eine geprüfte Version aktivieren und starten. Auf Nutzerwunsch sind Updatepaket und EXE nicht signiert; die Paketprüfung belegt keine Herkunft. Der vollständige Ablauf der einzelnen Update-EXE und der Übergang von Version 0.1.4 sind noch nicht vollständig geprüft; der Ablauf ist nicht produktionsreif.
+Die Offline-Update-Funktion wird unter `update-entwicklung/` entwickelt. Ein Assistent kann nach manueller Sicherung und Beendigung bei kompatiblem Starter eine geprüfte Version einschließlich Starter aktivieren und starten. Nach einer Unterbrechung bei der Umschaltung dieselbe Update-EXE erneut ausführen. Auf Nutzerwunsch sind Updatepaket und EXE nicht signiert; die Paketprüfung belegt keine Herkunft. Der vollständige Ablauf der einzelnen Update-EXE und der Übergang von Version 0.1.4 sind noch nicht vollständig geprüft; der Ablauf ist nicht produktionsreif.
 
 ```
 Klausurfix/

@@ -35,6 +35,9 @@ public static class StoppedVersionInstaller
         };
         if (architecture != expected) throw new InvalidDataException("Das Update passt nicht zur Windows-Architektur.");
         var root = Path.GetFullPath(installationDirectory);
+        for (var dir = new DirectoryInfo(root); dir is not null; dir = dir.Parent)
+            if (dir.Exists && (dir.Attributes & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("Verknüpfte Programmordner werden nicht unterstützt.");
         if (!File.Exists(Path.Combine(root, "Klausurfix.exe")) ||
             !File.Exists(Path.Combine(root, "update-starter-v1.txt")))
             throw new InvalidOperationException("Dieser Programmordner besitzt noch keinen Starter für Versionsupdates.");
@@ -46,10 +49,72 @@ public static class StoppedVersionInstaller
             catch (AbandonedMutexException) { acquired = true; }
             if (!acquired) throw new IOException("Klausurfix wird gerade gestartet oder aktualisiert.");
             ensureStopped();
-            var staged = VersionStager.Stage(package, root, architecture);
+            var manifest = UpdatePackage.Verify(package);
+            if (manifest.Architektur != architecture) throw new InvalidDataException("Falsche Paketarchitektur.");
+            var selection = manifest.Version + "|" + architecture;
+            var pending = Path.Combine(root, ActiveVersion.PendingUpdate);
+            var backup = Path.Combine(root, ".starter-vor-update.bak");
+            var starter = Path.Combine(root, "Klausurfix.exe");
+            foreach (var path in new[] { pending, backup, Path.Combine(root, "aktive-version.txt"), Path.Combine(root, "basis-version.txt") })
+                if (File.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                    throw new IOException("Verknüpfte Update-Dateien werden nicht unterstützt.");
+            if ((File.GetAttributes(starter) & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("Ein verknüpfter Starter wird nicht ersetzt.");
+            var resumed = File.Exists(pending);
+            if (resumed)
+            {
+                if (new FileInfo(pending).Length > 100 || File.ReadAllText(pending) != selection)
+                    throw new InvalidOperationException("Ein anderes Update wurde unterbrochen. Bitte zuerst dessen Update-EXE erneut ausführen.");
+                var active = Path.Combine(root, "aktive-version.txt");
+                if (File.Exists(active) && File.ReadAllText(active) == selection)
+                {
+                    var completed = VersionStager.Stage(package, root, architecture, true);
+                    using (var current = File.OpenRead(starter))
+                    using (var expectedStarter = File.OpenRead(Path.Combine(completed.Directory, "Klausurfix.exe")))
+                        if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                            System.Security.Cryptography.SHA256.HashData(current), System.Security.Cryptography.SHA256.HashData(expectedStarter)))
+                            throw new InvalidDataException("Der aktive Starter stimmt nicht mit dem geprüften Update überein.");
+                    if (File.Exists(backup)) File.Delete(backup);
+                    File.Delete(pending);
+                    start?.Invoke(root);
+                    return completed;
+                }
+                if (File.Exists(backup)) File.Replace(backup, starter, null);
+                File.Delete(pending);
+            }
+            else if (File.Exists(backup))
+                throw new IOException("Eine nicht zugeordnete Starter-Sicherung liegt im Programmordner. Update abgebrochen.");
+
+            ActiveVersion.EnsureNewer(root, manifest.Version!, architecture);
+            var staged = VersionStager.Stage(package, root, architecture, true);
             // The launcher uses the same mutex; check again before the switch.
             ensureStopped();
-            ActiveVersion.Activate(root, staged.Version, staged.Architecture);
+            var candidate = Path.Combine(root, ".starter-neu-" + Guid.NewGuid().ToString("N") + ".tmp");
+            var journalTemp = Path.Combine(root, ".starter-update-" + Guid.NewGuid().ToString("N") + ".tmp");
+            try
+            {
+                File.Copy(Path.Combine(staged.Directory, "Klausurfix.exe"), candidate);
+                using (var journal = new FileStream(journalTemp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    journal.Write(System.Text.Encoding.UTF8.GetBytes(selection));
+                    journal.Flush(flushToDisk: true);
+                }
+                File.Move(journalTemp, pending);
+                File.Replace(candidate, starter, backup);
+                ActiveVersion.Activate(root, staged.Version, staged.Architecture);
+                File.Delete(backup);
+                File.Delete(pending);
+            }
+            catch (Exception ex)
+            {
+                // Leave the journal and any backup for a safe retry of this same EXE.
+                throw new IOException("Die Umschaltung wurde unterbrochen. Bitte diese Update-EXE nach Beheben der Ursache erneut ausführen. Ursache: " + ex.Message, ex);
+            }
+            finally
+            {
+                if (File.Exists(candidate)) File.Delete(candidate);
+                if (File.Exists(journalTemp)) File.Delete(journalTemp);
+            }
             try { start?.Invoke(root); }
             catch (Exception ex)
             {

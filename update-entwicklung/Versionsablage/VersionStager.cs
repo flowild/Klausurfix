@@ -11,6 +11,9 @@ public static class VersionStager
     }
 
     public static StagedVersion Stage(Stream package, string installationDirectory, string architecture)
+        => Stage(package, installationDirectory, architecture, false);
+
+    internal static StagedVersion Stage(Stream package, string installationDirectory, string architecture, bool reuseVerified)
     {
         if (!package.CanRead || !package.CanSeek) throw new ArgumentException("Das Update-Paket muss lesbar und positionierbar sein.", nameof(package));
         package.Position = 0;
@@ -31,7 +34,39 @@ public static class VersionStager
         Directory.CreateDirectory(versions);
         CheckExistingParents(versions);
         var target = Path.Combine(versions, version + "-" + architecture);
-        if (Directory.Exists(target) || File.Exists(target)) throw new IOException("Diese Version ist bereits vorhanden.");
+        if (Directory.Exists(target))
+        {
+            if (!reuseVerified) throw new IOException("Diese Version ist bereits vorhanden.");
+            // A previous installation may have been interrupted after staging.
+            // Reuse only the exact, still-verified package contents.
+            CheckExistingParents(target);
+            var expected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var file in files)
+            {
+                var relative = file.Pfad![4..].Replace('/', Path.DirectorySeparatorChar);
+                var path = Path.GetFullPath(Path.Combine(target, relative));
+                if (!path.StartsWith(Path.TrimEndingDirectorySeparator(target) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("Ungültiger Zielpfad.");
+                CheckExistingParents(Path.GetDirectoryName(path)!);
+                if (!expected.Add(path) || !File.Exists(path) || (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                    throw new InvalidDataException("Die bereits bereitgestellte Version ist unvollständig oder verändert.");
+                using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                if (input.Length != file.Groesse || !CryptographicOperations.FixedTimeEquals(SHA256.HashData(input), Convert.FromHexString(file.Sha256!)))
+                    throw new InvalidDataException("Die bereits bereitgestellte Version ist beschädigt oder verändert.");
+            }
+            var directories = new Stack<string>();
+            directories.Push(target);
+            while (directories.TryPop(out var directory))
+                foreach (var path in Directory.EnumerateFileSystemEntries(directory))
+                {
+                    var attributes = File.GetAttributes(path);
+                    if ((attributes & FileAttributes.ReparsePoint) != 0) throw new InvalidDataException("Die bereitgestellte Version enthält eine Verknüpfung.");
+                    if ((attributes & FileAttributes.Directory) != 0) directories.Push(path);
+                    else if (!expected.Contains(Path.GetFullPath(path))) throw new InvalidDataException("Die bereitgestellte Version enthält zusätzliche Dateien.");
+                }
+            return new StagedVersion(version, architecture, target);
+        }
+        if (File.Exists(target)) throw new IOException("Diese Version ist bereits vorhanden.");
         var stage = Path.Combine(versions, ".vorbereitung-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(stage);
         CheckExistingParents(stage);

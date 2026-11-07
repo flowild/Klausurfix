@@ -5,10 +5,13 @@ using System.Text;
 public static class ActiveVersion
 {
     private const string Marker = "aktive-version.txt";
+    public const string PendingUpdate = ".starter-update-ausstehend";
 
     public static string ResolveBackend(string root)
     {
         root = Path.GetFullPath(root);
+        if (File.Exists(Path.Combine(root, PendingUpdate)))
+            throw new InvalidOperationException("Ein Update wurde unterbrochen. Bitte dieselbe Update-EXE erneut ausführen, um es abzuschließen.");
         var marker = Path.Combine(root, Marker);
         if (!File.Exists(marker)) return Path.Combine(root, "app", "Klausurfix.Web.exe");
         using var stream = new FileStream(marker, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -34,10 +37,29 @@ public static class ActiveVersion
         if (!File.Exists(backend) || !File.Exists(Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(backend)!)!, "Klausurfix.exe")))
             throw new FileNotFoundException("Die neue Programmversion ist nicht vollständig.");
         var marker = Path.Combine(root, Marker);
+        EnsureNewer(root, parsed.Version, parsed.Architecture);
+        var temp = Path.Combine(root, ".aktive-version-" + Guid.NewGuid().ToString("N") + ".tmp");
+        try
+        {
+            using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                var bytes = Encoding.UTF8.GetBytes(selection);
+                stream.Write(bytes);
+                stream.Flush(flushToDisk: true);
+            }
+            File.Move(temp, marker, overwrite: true);
+        }
+        finally { if (File.Exists(temp)) File.Delete(temp); }
+    }
+
+    internal static void EnsureNewer(string root, string version, string architecture)
+    {
+        var parsed = Parse(version + "|" + architecture);
+        var marker = Path.Combine(root, Marker);
         if (File.Exists(marker))
         {
             var previous = Parse(File.ReadAllText(marker));
-            if (Version.Parse(previous.Version) >= Version.Parse(parsed.Version))
+            if (previous.Architecture != parsed.Architecture || Version.Parse(previous.Version) >= Version.Parse(parsed.Version))
                 throw new InvalidOperationException("Eine gleich alte oder ältere Version wird nicht automatisch aktiviert.");
         }
         else
@@ -52,18 +74,6 @@ public static class ActiveVersion
             if (previous.Architecture != parsed.Architecture || Version.Parse(previous.Version) >= Version.Parse(parsed.Version))
                 throw new InvalidOperationException("Die Ausgangsversion passt nicht oder das Update ist nicht neuer.");
         }
-        var temp = Path.Combine(root, ".aktive-version-" + Guid.NewGuid().ToString("N") + ".tmp");
-        try
-        {
-            using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-            {
-                var bytes = Encoding.UTF8.GetBytes(selection);
-                stream.Write(bytes);
-                stream.Flush(flushToDisk: true);
-            }
-            File.Move(temp, marker, overwrite: true);
-        }
-        finally { if (File.Exists(temp)) File.Delete(temp); }
     }
 
     private static (string Version, string Architecture) Parse(string value)

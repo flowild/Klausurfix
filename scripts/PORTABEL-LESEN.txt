@@ -10,6 +10,10 @@ Das x64-Paket ist für 64-Bit-Windows auf Intel- und AMD-Prozessoren vorgesehen.
 Für die Nutzung ist kein .NET SDK und keine Internetverbindung nötig. Das gesamte
 entpackte Programmverzeichnis muss zusammenbleiben. Beim Start wird nach Möglichkeit
 eine Desktop-Verknüpfung erstellt; eine vorhandene wird nicht überschrieben.
+Solange der Dienst läuft, zeigt der Starter ein Symbol im Windows-Infobereich.
+Rechtsklick darauf bietet „Öffnen“ und „Beenden“. Vor „Beenden“ alle offenen
+Eingaben und Formulare in allen Fenstern speichern; das Tray-Menü speichert sie
+nicht automatisch. Wird der Dienst beendet, verschwindet das Symbol.
 
 Die Anwendung und ihre Daten sind getrennt: Daten und verwaltete Sicherungen liegen
 standardmäßig unter %LOCALAPPDATA%\Klausurfix des jeweiligen Windows-Benutzers,
