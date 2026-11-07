@@ -1,5 +1,5 @@
 param(
-    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$PackageVersion = '0.2.0',
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$PackageVersion = '0.2.4',
     [switch]$UpdateOnly
 )
 

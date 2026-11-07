@@ -194,6 +194,7 @@ app.MapGet("/api/setup/status", (HttpContext context, KeyManager km, LocalSessio
 {
     return Results.Ok(new
     {
+        appVersion = typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "unbekannt",
         isInitialized = km.IsInitialized,
         isUnlocked = km.IsUnlocked && sessions.IsValid(context),
         isHelloRegistered = km.IsHelloRegistered,

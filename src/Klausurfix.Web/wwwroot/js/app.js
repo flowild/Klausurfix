@@ -1598,6 +1598,7 @@ async function loadSettings() {
   try {
     const status = await api.getSetupStatus();
     updateHelloControls(status);
+    document.getElementById("settingsAppVersion").textContent = status.appVersion || "unbekannt";
     document.getElementById("settingsTimeout").value = status.inactivityTimeoutMinutes.toString();
     loadBackupsTable();
   } catch (err) {

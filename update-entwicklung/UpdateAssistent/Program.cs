@@ -18,11 +18,14 @@ internal static class Program
 internal sealed class UpdateWindow : Form
 {
     private readonly Label _status;
+    private readonly ProgressBar _progress;
+    private readonly TableLayoutPanel _layout;
+    private readonly TableLayoutPanel _statusPanel;
+    private bool _installing;
     private readonly Label _selectedBackup;
     private readonly TextBox _recoveryKey;
     private readonly Button _install;
     private readonly CheckBox _noData;
-    private readonly CheckBox _sameVersion;
     private string? _backupPath;
     private readonly System.Windows.Forms.Timer _verificationTimer = new() { Interval = 800 };
     private int _verificationGeneration;
@@ -47,14 +50,21 @@ internal sealed class UpdateWindow : Form
         header.Controls.Add(new Label { Text = "Klausurfix", ForeColor = Color.FromArgb(37, 99, 235), Font = new Font(Font.FontFamily, 17, FontStyle.Bold), AutoSize = true, Padding = new Padding(0, 5, 0, 0) });
         page.Controls.Add(header, 0, 0);
         var body = new Panel { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(24) };
-        var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Color.White, Padding = new Padding(28), ColumnCount = 1, RowCount = 12 };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Color.White, Padding = new Padding(28), ColumnCount = 1, RowCount = 11 };
+        _layout = layout;
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        for (var i = 0; i < 12; i++) layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        for (var i = 0; i < 11; i++) layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.Controls.Add(new Label { Text = "Klausurfix aktualisieren", AutoSize = true, Font = new Font(Font.FontFamily, 18, FontStyle.Bold), ForeColor = Color.FromArgb(15, 23, 42), Margin = new Padding(0, 0, 0, 12) }, 0, 0);
         layout.Controls.Add(new Label { Text = "Bitte Klausurfix vor dem Update sichern und beenden.", AutoSize = true, ForeColor = Color.FromArgb(71, 85, 105), Margin = new Padding(0, 0, 0, 20) }, 0, 1);
         layout.Controls.Add(new Label { Text = "Prüfstatus", AutoSize = true, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(0, 0, 0, 6) }, 0, 2);
         _status = new Label { Text = "Paket wird geprüft …", AutoSize = true, ForeColor = Color.FromArgb(71, 85, 105), Margin = new Padding(0, 0, 0, 20) };
-        layout.Controls.Add(_status, 0, 3);
+        var statusPanel = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 1, RowCount = 2 };
+        _statusPanel = statusPanel;
+        statusPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        statusPanel.Controls.Add(_status, 0, 0);
+        _progress = new ProgressBar { Dock = DockStyle.Fill, Height = 18, Style = ProgressBarStyle.Marquee, MarqueeAnimationSpeed = 30, Visible = false, Margin = new Padding(0, 0, 0, 20), AccessibleName = "Update wird installiert" };
+        statusPanel.Controls.Add(_progress, 0, 1);
+        layout.Controls.Add(statusPanel, 0, 3);
         layout.Controls.Add(new Label { Text = "Sicherung", AutoSize = true, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(0, 0, 0, 6) }, 0, 4);
         _selectedBackup = new Label { AutoSize = true, ForeColor = Color.FromArgb(71, 85, 105), Margin = new Padding(0, 0, 0, 10) };
         layout.Controls.Add(_selectedBackup, 0, 5);
@@ -126,18 +136,17 @@ internal sealed class UpdateWindow : Form
         layout.Controls.Add(keyRow, 0, 8);
         _noData.Margin = new Padding(0, 0, 0, 10);
         layout.Controls.Add(_noData, 0, 9);
-        _sameVersion = new CheckBox { Text = "Gleiche Version zu Testzwecken erneut installieren", AutoSize = true, Margin = new Padding(0, 0, 0, 24) };
-        layout.Controls.Add(_sameVersion, 0, 10);
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.RightToLeft, WrapContents = true };
         var close = new Button { Text = "Schließen", AutoSize = true };
         StyleButton(close, false);
         close.Click += (_, _) => Close();
         actions.Controls.Add(_install);
         actions.Controls.Add(close);
-        layout.Controls.Add(actions, 0, 11);
+        layout.Controls.Add(actions, 0, 10);
         body.Controls.Add(layout);
         page.Controls.Add(body, 0, 1);
         Controls.Add(page);
+        FormClosing += (_, e) => { if (_installing) e.Cancel = true; };
         Shown += async (_, _) =>
         {
             ActiveControl = null;
@@ -171,7 +180,6 @@ internal sealed class UpdateWindow : Form
         try { InteractiveUser.EnsureSame(); }
         catch (Exception ex) { _status.Text = ex.Message; return; }
         var noData = _noData.Checked;
-        var allowSameVersion = _sameVersion.Checked;
         if (!noData && _backupPath is null) { _status.Text = "Bitte zuerst eine aktuelle Sicherung auswählen."; return; }
         if (!noData && string.IsNullOrWhiteSpace(_recoveryKey.Text)) { _status.Text = "Bitte den Wiederherstellungsschlüssel eingeben."; return; }
         var root = InstallationRegistration.Find();
@@ -179,7 +187,10 @@ internal sealed class UpdateWindow : Form
         var backupPath = _backupPath;
         var recoveryKey = _recoveryKey.Text;
         _verificationTimer.Stop();
-        Enabled = false;
+        _installing = true;
+        foreach (Control control in _layout.Controls) if (control != _statusPanel) control.Enabled = false;
+        _progress.Visible = true;
+        var succeeded = false;
         try
         {
             _status.Text = "Sicherung und Update werden geprüft und installiert …";
@@ -197,19 +208,27 @@ internal sealed class UpdateWindow : Form
                 {
                     StoppedServiceGuard.EnsureStopped();
                     EmptyDataGuard.EnsureNoData();
-                    return StoppedVersionInstaller.Install(package, root, architecture, allowSameVersion);
+                    return StoppedVersionInstaller.Install(package, root, architecture, true);
                 }
                 using var backupStream = new FileStream(backupPath!, FileMode.Open, FileAccess.Read, FileShare.Read);
                 if (backupStream.Length > 512L * 1024 * 1024) throw new InvalidDataException("Die Sicherungsdatei ist zu groß.");
                 using var backupBuffer = new MemoryStream();
                 backupStream.CopyTo(backupBuffer);
-                return UpdateWorkflow.Install(package, root, architecture, backupBuffer.ToArray(), recoveryKey, allowSameVersion);
+                return UpdateWorkflow.Install(package, root, architecture, backupBuffer.ToArray(), recoveryKey, true);
             });
             _status.Text = $"Version {result.Version} wurde aktiviert. Bitte Klausurfix über die Desktop-Verknüpfung mit dem normalen Benutzerkonto starten.";
+            _progress.Visible = false;
             MessageBox.Show(this, _status.Text, "Klausurfix Update", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            succeeded = true;
         }
         catch (Exception ex) { _status.Text = $"Update nicht abgeschlossen.\n\n{ex.Message}"; }
-        finally { Enabled = true; }
+        finally
+        {
+            _progress.Visible = false;
+            foreach (Control control in _layout.Controls) if (control != _statusPanel) control.Enabled = true;
+            _installing = false;
+        }
+        if (succeeded) Close();
     }
 
     private void ScheduleVerification()
