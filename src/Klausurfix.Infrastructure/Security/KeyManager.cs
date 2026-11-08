@@ -14,25 +14,11 @@ public class KeyEnvelope
     public string EncryptedDekWithRecovery { get; set; } = string.Empty;
     public string RecoveryKeyHint { get; set; } = string.Empty; // e.g. first/last 4 chars
     public string? EncryptedDekWithDpapi { get; set; } = null;
-    public string? HelloCredentialId { get; set; } = null;
-    public string? HelloPublicKey { get; set; } = null;
-    public uint HelloSignCount { get; set; } = 0;
-    public HelloKeyEnvelope? HelloKey { get; set; }
     public int InactivityTimeoutMinutes { get; set; } = 15;
     public bool AutomaticBackupEnabled { get; set; } = true;
     public int AutomaticBackupIntervalHours { get; set; } = 24;
     public int FailedPinAttempts { get; set; } = 0;
     public DateTimeOffset? LockedUntilUtc { get; set; } = null;
-}
-
-public sealed class HelloKeyEnvelope
-{
-    public string CredentialId { get; set; } = string.Empty;
-    public string PublicKey { get; set; } = string.Empty;
-    public string PrfSalt { get; set; } = string.Empty;
-    public string ProtectedDek { get; set; } = string.Empty;
-    public string UserId { get; set; } = string.Empty;
-    public uint SignCount { get; set; }
 }
 
 public class KeyManager
@@ -65,18 +51,6 @@ public class KeyManager
                 if (_activeDek == null) return false;
                 CheckInactivityTimeout();
                 return _activeDek != null;
-            }
-        }
-    }
-
-    public bool IsHelloRegistered
-    {
-        get
-        {
-            lock (_lock)
-            {
-                var env = GetEnvelopeInternal();
-                return env?.HelloKey is not null;
             }
         }
     }
@@ -141,7 +115,7 @@ public class KeyManager
             CheckInactivityTimeout();
             if (_activeDek == null)
             {
-                throw new InvalidOperationException("Anwendung ist gesperrt. Bitte zuerst mit PIN oder Windows Hello entsperren.");
+                throw new InvalidOperationException("Anwendung ist gesperrt. Bitte zuerst mit PIN entsperren.");
             }
             if (recordActivity) RecordActivity();
             return (byte[])_activeDek.Clone();
@@ -245,8 +219,6 @@ public class KeyManager
                     env.PinBoundToWindows = true;
                 }
                 env.EncryptedDekWithDpapi = null;
-                env.HelloCredentialId = null;
-                env.HelloPublicKey = null;
 
                 // Success!
                 env.FailedPinAttempts = 0;
@@ -313,8 +285,6 @@ public class KeyManager
                 env.LockedUntilUtc = null;
                 // Remove the former DPAPI-only shortcut after recovery as well.
                 env.EncryptedDekWithDpapi = null;
-                env.HelloCredentialId = null;
-                env.HelloPublicKey = null;
                 SaveEnvelopeInternal(env);
 
                 if (_activeDek != null)
@@ -352,82 +322,6 @@ public class KeyManager
             }
             catch (CryptographicException) { return false; }
             finally { CryptoService.ZeroMemory(key); }
-        }
-    }
-
-    public void RemoveHello()
-    {
-        lock (_lock)
-        {
-            var env = GetEnvelopeInternal() ?? throw new InvalidOperationException("Nicht eingerichtet.");
-            env.HelloCredentialId = null;
-            env.HelloPublicKey = null;
-            env.EncryptedDekWithDpapi = null;
-            env.HelloKey = null;
-            SaveEnvelopeInternal(env);
-        }
-    }
-
-    /// <summary>Store a credential only after its WebAuthn registration has been verified.</summary>
-    public void SaveVerifiedHelloCredential(byte[] credentialId, byte[] publicKey, byte[] prfSalt, byte[] prfResult, uint signCount, byte[] userId)
-    {
-        lock (_lock)
-        {
-            CheckInactivityTimeout();
-            var env = GetEnvelopeInternal() ?? throw new InvalidOperationException("Nicht eingerichtet.");
-            if (_activeDek == null) throw new InvalidOperationException("Anwendung ist gesperrt.");
-            if (credentialId.Length == 0 || publicKey.Length == 0 || prfSalt.Length != 32 || userId.Length == 0)
-                throw new ArgumentException("Ungültige Hello-Anmeldedaten.");
-            var protectedDek = HelloKeyProtector.Protect(_activeDek, prfResult, credentialId);
-            env.HelloKey = new HelloKeyEnvelope
-            {
-                CredentialId = Convert.ToBase64String(credentialId),
-                PublicKey = Convert.ToBase64String(publicKey),
-                PrfSalt = Convert.ToBase64String(prfSalt),
-                ProtectedDek = Convert.ToBase64String(protectedDek),
-                UserId = Convert.ToBase64String(userId),
-                SignCount = signCount
-            };
-            SaveEnvelopeInternal(env);
-        }
-    }
-
-    /// <summary>Returns a copy of the public credential data needed to verify an assertion.</summary>
-    public HelloKeyEnvelope? GetHelloCredential()
-    {
-        lock (_lock)
-        {
-            var hello = GetEnvelopeInternal()?.HelloKey;
-            return hello is null ? null : new HelloKeyEnvelope
-            {
-                CredentialId = hello.CredentialId, PublicKey = hello.PublicKey,
-                PrfSalt = hello.PrfSalt, ProtectedDek = hello.ProtectedDek, SignCount = hello.SignCount, UserId = hello.UserId
-            };
-        }
-    }
-
-    /// <summary>Only call after verifying the challenge, signature, origin and user verification.</summary>
-    public void UnlockWithVerifiedHello(byte[] credentialId, byte[] prfResult, uint signCount)
-    {
-        lock (_lock)
-        {
-            var env = GetEnvelopeInternal() ?? throw new InvalidOperationException("Nicht eingerichtet.");
-            var hello = env.HelloKey ?? throw new InvalidOperationException("Windows Hello ist nicht eingerichtet.");
-            var expectedId = Convert.FromBase64String(hello.CredentialId);
-            if (!CryptographicOperations.FixedTimeEquals(credentialId, expectedId))
-                throw new CryptographicException("Ungültige Anmeldekennung.");
-            if (hello.SignCount != 0 && signCount <= hello.SignCount)
-                throw new CryptographicException("Ungültiger Signaturzähler.");
-            var dek = HelloKeyProtector.Unprotect(Convert.FromBase64String(hello.ProtectedDek), prfResult, credentialId);
-            try
-            {
-                hello.SignCount = signCount;
-                SaveEnvelopeInternal(env);
-                if (_activeDek != null) CryptoService.ZeroMemory(_activeDek);
-                _activeDek = dek;
-                _lastActivityUtc = DateTimeOffset.UtcNow;
-            }
-            catch { CryptoService.ZeroMemory(dek); throw; }
         }
     }
 

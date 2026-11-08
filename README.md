@@ -25,9 +25,9 @@ Entwickelt für den Betrieb auf einem **Microsoft Surface Pro** unter Windows.
 - **Automatische Sicherung:** In den Einstellungen ein- oder ausschalten und das Intervall auf 6 Stunden, 12 Stunden, täglich oder wöchentlich einstellen; voreingestellt ist täglich. Fällige Sicherungen werden bei laufender und entsperrter Anwendung erstellt. Ist die App geschlossen oder gesperrt, erfolgt die fällige Sicherung nach dem nächsten Entsperren. In den Einstellungen sind letzte Sicherung und Fehler sichtbar. Automatische Sicherungen bleiben bis zur manuellen Löschung erhalten und können mit dem Wiederherstellungsschlüssel wiederhergestellt werden.
 - **PDF- & DOCX-Export:** Übersichtsberichte im Querformat mit Aufgabenmatrix, waagerechtem Notenspiegel und Bewertungsregeln.
 - **Klausurendeckblätter:** Bearbeitbare Aufgabenstellungen, Klausurdaten, Höchstpunkte, Notenschlüssel und Hinweise im A4-Hochformat. Pro Klausur auswählbare Operatoren stehen mit Definition auf der ersten Seite; PDF und DOCX sind offline verfügbar.
-- **Sicherheit & Windows Hello:**
+- **Sicherheit:**
   - App-PIN mit 6 bis 64 Ziffern, PBKDF2-Schlüsselableitung (600.000 Iterationen) und progressiver Verzögerung bei Fehlversuchen. Kurze PINs bleiben für eine einfache Bedienung erlaubt.
-  - Die PIN-Schlüsselhülle wird zusätzlich an den Windows-Benutzer gebunden. Die Geräteanmeldung über WebAuthn erfordert Benutzerverifikation und einen PRF-fähigen Plattformauthentifikator; die App-PIN bleibt verfügbar. Die Funktion muss auf dem Surface mit Windows Hello und dem verwendeten Browser geprüft werden.
+  - Die PIN-Schlüsselhülle wird zusätzlich an den Windows-Benutzer gebunden. Das Entsperren erfolgt mit der App-PIN oder dem Wiederherstellungsschlüssel.
   - Unabhängiger Wiederherstellungsschlüssel (`KF-XXXX-XXXX-...`) für portable Backups und Neuinstallationen.
   - Automatische Sperre bei Inaktivität und manueller Sofort-Sperrknopf.
 
@@ -49,7 +49,7 @@ Der Update-Assistent liest den registrierten Installationspfad automatisch. Er p
 
 ### 1. Starten
 
-Für die portable Version das passende ZIP vollständig entpacken und `Klausurfix.exe` starten: `win-arm64` für Windows auf ARM (z. B. Surface Pro 11), `win-x64` für Windows auf Intel-/AMD-Prozessoren. Die Laufzeit ist enthalten; es wird kein .NET SDK benötigt. Arbeitsdaten und verwaltete Sicherungen liegen ab 0.2.0 unter `Dokumente\Klausurfix` und werden nicht mit dem Programmordner verschickt. Die ARM64-Version und Windows Hello müssen auf dem Surface noch geprüft werden.
+Für die portable Version das passende ZIP vollständig entpacken und `Klausurfix.exe` starten: `win-arm64` für Windows auf ARM (z. B. Surface Pro 11), `win-x64` für Windows auf Intel-/AMD-Prozessoren. Die Laufzeit ist enthalten; es wird kein .NET SDK benötigt. Arbeitsdaten und verwaltete Sicherungen liegen ab 0.2.0 unter `Dokumente\Klausurfix` und werden nicht mit dem Programmordner verschickt. Die ARM64-Version muss auf dem Surface noch geprüft werden.
 
 Zum Aktualisieren von 0.1 zunächst dort eine verschlüsselte Sicherung erstellen und die App mit **Beenden** schließen. Die neue Version in einen eigenen Programmordner entpacken und daraus starten; vorhandene Arbeitsdaten werden beim Entsperren migriert. Die umgestellte Arbeitsdatenbank ist mit 0.1 nicht mehr lesbar. Eine bisherige Desktop-Verknüpfung verweist weiterhin auf den alten Programmordner und muss angepasst werden.
 

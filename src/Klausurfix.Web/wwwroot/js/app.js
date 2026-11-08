@@ -1,5 +1,4 @@
 import { api } from "./api.js";
-import { registerHello, unlockHello } from "./hello.js";
 import { createCoverSheetEditor } from "./cover-sheet.js";
 import { showHamster, hideHamster } from "./hamster.js";
 import { createUpdateSaveCoordinator } from "./update-save.js";
@@ -21,17 +20,7 @@ const state = {
   lockoutInterval: null
 };
 const collapsedClasses = new Set();
-function updateHelloControls(status) {
-  const enabled = status.isHelloAvailable && window.isSecureContext && !!window.PublicKeyCredential;
-  const unlock = document.getElementById("unlockHelloBtn");
-  unlock.disabled = !enabled || !status.isHelloRegistered;
-  unlock.textContent = unlock.disabled ? "Geräteanmeldung derzeit nicht verfügbar" : "Mit Geräteanmeldung entsperren";
-  const register = document.getElementById("registerHelloBtn");
-  register.disabled = !enabled;
-  register.textContent = enabled ? "Geräteanmeldung einrichten" : "Geräteanmeldung derzeit nicht verfügbar";
-  document.getElementById("helloPinGroup").hidden = !enabled;
-  document.getElementById("removeHelloBtn").disabled = !enabled || !status.isHelloRegistered;
-}
+
 const themeToggle = document.getElementById("themeToggle");
 function updateThemeButton() {
   const dark = document.documentElement.dataset.theme === "dark";
@@ -156,7 +145,6 @@ window.addEventListener("popstate", async event => {
 async function init() {
   try {
     const status = await api.getSetupStatus();
-    updateHelloControls(status);
     state.isInitialized = status.isInitialized;
     state.isUnlocked = status.isUnlocked;
 
@@ -324,22 +312,6 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
-// Windows Hello Unlock
-document.getElementById("unlockHelloBtn").addEventListener("click", async () => {
-  const msgEl = document.getElementById("unlockMessage");
-  msgEl.textContent = "";
-  try {
-    const res = await unlockHello();
-    if (res.success) {
-      state.isUnlocked = true;
-      showToast("Mit Windows Hello entsperrt.", "success");
-      switchView("dashboard");
-    }
-  } catch (err) {
-    msgEl.textContent = err.message;
-  }
-});
-
 // Manual Lock
 document.getElementById("lockBtn").addEventListener("click", async () => {
   try {
@@ -413,7 +385,6 @@ setInterval(async () => {
   if (!state.isUnlocked) return;
   try {
     const status = await api.getSetupStatus();
-    updateHelloControls(status);
     if (!status.isUnlocked) window.dispatchEvent(new CustomEvent("klausurfix:locked"));
   } catch { window.dispatchEvent(new CustomEvent("klausurfix:locked")); }
 }, 5000);
@@ -1690,7 +1661,6 @@ document.getElementById("recalculateBtn").addEventListener("click", async () => 
 async function loadSettings() {
   try {
     const status = await api.getSetupStatus();
-    updateHelloControls(status);
     document.getElementById("settingsAppVersion").textContent = status.appVersion || "unbekannt";
     document.getElementById("settingsTimeout").value = status.inactivityTimeoutMinutes.toString();
     loadBackupsTable();
@@ -1768,51 +1738,6 @@ document.getElementById("changePinForm").addEventListener("submit", async (e) =>
     await api.changePin(oldPin, newPin);
     showToast("App-PIN erfolgreich geändert.", "success");
     document.getElementById("changePinForm").reset();
-  } catch (err) {
-    showToast(err.message, "error");
-  }
-});
-
-document.getElementById("checkHelloSupportBtn").addEventListener("click", async () => {
-  const result = document.getElementById("helloSupportResult");
-  if (!window.isSecureContext || !window.PublicKeyCredential ||
-      typeof PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable !== "function") {
-    result.textContent = "Dieser Browser stellt die benötigte Geräteanmeldung nicht bereit. Die Prüfung aktiviert Windows Hello nicht.";
-    return;
-  }
-  try {
-    const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-    result.textContent = available
-      ? "Eine Geräteanmeldung ist verfügbar. Ob Windows Hello und der benötigte Schlüsselschutz unterstützt werden, muss noch geprüft werden. Die Funktion ist nicht aktiviert."
-      : "Keine bestätigende Geräteanmeldung verfügbar. Prüfen Sie Windows Hello und die Browser-Einstellungen. Die Funktion ist nicht aktiviert.";
-  } catch {
-    result.textContent = "Die Geräteunterstützung konnte nicht geprüft werden. Die Funktion ist nicht aktiviert.";
-  }
-});
-
-document.getElementById("registerHelloBtn").addEventListener("click", async () => {
-  const pinInput = document.getElementById("helloPin");
-  const pin = pinInput.value;
-  pinInput.value = "";
-  if (!pin) { showToast("Bitte die App-PIN eingeben.", "error"); return; }
-  try {
-    await registerHello(pin);
-    showToast("Geräteanmeldung eingerichtet.", "success");
-    updateHelloControls(await api.getSetupStatus());
-  } catch (err) {
-    showToast(err.message, "error");
-  }
-});
-
-document.getElementById("removeHelloBtn").addEventListener("click", async () => {
-  const pinInput = document.getElementById("helloPin");
-  const pin = pinInput.value;
-  pinInput.value = "";
-  if (!pin) { showToast("Bitte die App-PIN eingeben.", "error"); return; }
-  try {
-    await api.removeHello(pin);
-    showToast("Windows Hello Registrierung entfernt.", "info");
-    updateHelloControls(await api.getSetupStatus());
   } catch (err) {
     showToast(err.message, "error");
   }

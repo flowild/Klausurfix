@@ -61,9 +61,6 @@ export const api = {
       body: JSON.stringify({ recoveryKey })
     });
   },
-  unlockHello() {
-    return this.request("/api/auth/unlock-hello", { method: "POST" });
-  },
   lock() {
     return this.request("/api/auth/lock", { method: "POST" });
   },
@@ -75,12 +72,6 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ oldPin, newPin })
     });
-  },
-  registerHello() {
-    return this.request("/api/auth/hello/register", { method: "POST" });
-  },
-  removeHello(pin) {
-    return this.request("/api/auth/hello/remove", { method: "POST", body: JSON.stringify({ pin }) });
   },
 
   // Schulformen
