@@ -68,17 +68,22 @@ public class CleanupService
 
         if (Directory.Exists(AppPaths.BaseDirectory))
         {
-            // Delete files inside AppPaths.BaseDirectory safely
             var dir = new DirectoryInfo(AppPaths.BaseDirectory);
-            foreach (var file in dir.GetFiles("*", SearchOption.AllDirectories))
-            {
-                try { file.Delete(); } catch { }
-            }
+            CheckNoLinks(dir);
+            foreach (var file in dir.GetFiles()) file.Delete();
+            foreach (var subDir in dir.GetDirectories()) subDir.Delete(recursive: true);
+        }
+    }
 
-            foreach (var subDir in dir.GetDirectories())
-            {
-                try { subDir.Delete(recursive: true); } catch { }
-            }
+    private static void CheckNoLinks(DirectoryInfo directory)
+    {
+        if ((directory.Attributes & FileAttributes.ReparsePoint) != 0)
+            throw new IOException("Der Datenordner enthält eine Verknüpfung. Das Zurücksetzen wurde abgebrochen.");
+        foreach (var entry in directory.EnumerateFileSystemInfos())
+        {
+            if ((entry.Attributes & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("Der Datenordner enthält eine Verknüpfung. Das Zurücksetzen wurde abgebrochen.");
+            if (entry is DirectoryInfo child) CheckNoLinks(child);
         }
     }
 }

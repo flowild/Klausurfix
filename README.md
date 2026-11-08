@@ -63,9 +63,13 @@ Für die Ausführung aus dem Quellordner wird das [.NET 10 SDK](https://dotnet.m
 
 Mit **Beenden** in der entsperrten Anwendung werden registrierte Ansichten zum Speichern aufgefordert und eine verschlüsselte Sicherung erstellt, bevor der lokale Hintergrunddienst beendet wird. Offene Formulare müssen zuvor gespeichert oder geschlossen werden. Schlägt die Speicherung oder Sicherung fehl, bleibt die Anwendung geöffnet. Die Registrierung erfasst nach einem Seiten-, Browser- oder Dienstneustart nicht nachweislich alle offenen Ansichten; bitte alle Fenster prüfen. Anschließend kann der Browser-Tab geschlossen werden.
 
+Auf dem Sperrbildschirm lässt sich Klausurfix nach einer Warnung ebenfalls beenden. Dabei werden offene Ansichten nicht zum Speichern aufgefordert und keine neue Sicherung erstellt; ungespeicherte Eingaben können verloren gehen. Für ein Update vorher entsperren, Eingaben speichern und eine Sicherung erstellen. Auch auf dem Einrichtungsbildschirm kann Klausurfix beendet werden; noch nicht abgeschlossene Einrichtungsangaben gehen dabei verloren.
+
+Nach einem erfolgreichen vollständigen Zurücksetzen beendet sich der Dienst. Beim nächsten Start beginnt die Einrichtung. Schlägt das Löschen fehl, bleibt der Dienst geöffnet und weist darauf hin, dass Dateien möglicherweise bereits teilweise gelöscht wurden.
+
 Ab 0.2.2 wird nach der bestätigten Beendigung die Speicher-Sperrfläche sofort entfernt und die Seite „Klausurfix wurde beendet“ angezeigt. Andere Tabs derselben Origin und desselben Browserprofils erhalten die Bestätigung ebenfalls, sofern der Browser BroadcastChannel unterstützt. Tabs in anderen Browserprofilen lassen sich auf diesem Weg nicht zuverlässig benachrichtigen. Browser erlauben nicht generell, selbst geöffnete Tabs automatisch zu schließen; der Tab kann nach der Bestätigung manuell geschlossen werden.
 
-Solange der über `Klausurfix.exe` gestartete Dienst läuft, erscheint das Klausurfix-Symbol im Windows-Infobereich. Über das Rechtsklickmenü öffnet **Öffnen** die Anwendung erneut im Browser. **Beenden** öffnet die Anwendung mit dem Hinweis, sie dort gegebenenfalls zu entsperren und zu beenden. Nach dem Beenden verschwindet das Symbol.
+Solange der über `Klausurfix.exe` gestartete Dienst läuft, erscheint das Klausurfix-Symbol im Windows-Infobereich. Über das Rechtsklickmenü öffnet **Öffnen** die Anwendung erneut im Browser. **Beenden** öffnet die Anwendung mit einem Hinweis zum dortigen Beenden. Nach dem Beenden verschwindet das Symbol.
 
 Das Tray-Symbol gehört zum Starter. Der neu entwickelte Update-Assistent tauscht auch den Starter aus, sodass Änderungen am Tray und am EXE-Icon mitgeliefert werden. Ältere, bereits gebaute Update-EXE-Dateien besitzen diese Funktion noch nicht.
 

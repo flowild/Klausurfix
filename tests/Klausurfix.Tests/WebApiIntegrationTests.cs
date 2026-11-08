@@ -17,6 +17,56 @@ using Xunit;
 public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>, IDisposable
 {
     [Fact]
+    public async Task FullResetStopsOnlyAfterSuccessfulDeletion()
+    {
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/setup/init", new { pin = "123456", recoveryKey = KeyManager.GenerateRecoveryKey() })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsync("/api/backups/create", null)).StatusCode);
+        var stopping = _factory.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping;
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsJsonAsync("/api/settings/danger/full-reset", new { pin = "654321" })).StatusCode);
+        Assert.False(stopping.IsCancellationRequested);
+        Assert.True(File.Exists(AppPaths.KeyEnvelopeFile));
+        var response = await _client.PostAsJsonAsync("/api/settings/danger/full-reset", new { pin = "123456" });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        await response.Content.ReadAsStringAsync();
+        Assert.False(File.Exists(AppPaths.KeyEnvelopeFile));
+        Assert.False(File.Exists(AppPaths.DatabaseFile));
+        Assert.Empty(Directory.EnumerateFiles(_testDir, "*", SearchOption.AllDirectories));
+        Assert.True(stopping.IsCancellationRequested || stopping.WaitHandle.WaitOne(TimeSpan.FromSeconds(2)));
+    }
+
+    [Fact]
+    public async Task FullResetDoesNotStopWhenDeletionFails()
+    {
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/setup/init", new { pin = "123456", recoveryKey = KeyManager.GenerateRecoveryKey() })).StatusCode);
+        var lockedFile = Path.Combine(_testDir, "in-use.tmp");
+        using var held = new FileStream(lockedFile, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
+        var response = await _client.PostAsJsonAsync("/api/settings/danger/full-reset", new { pin = "123456" });
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.False(_factory.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping.IsCancellationRequested);
+    }
+
+    [Fact]
+    public async Task UninitializedAppCanBeStopped()
+    {
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsync("/api/application/shutdown-locked", null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task LockedShutdownRejectsForeignOriginsAndUnlockedApp()
+    {
+        var recovery = KeyManager.GenerateRecoveryKey();
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/setup/init", new { pin = "123456", recoveryKey = recovery })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await _client.PostAsync("/api/application/shutdown-locked", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsync("/api/auth/lock", null)).StatusCode);
+        using var foreign = new HttpRequestMessage(HttpMethod.Post, "/api/application/shutdown-locked");
+        foreign.Headers.Add("Origin", "https://attacker.example");
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.SendAsync(foreign)).StatusCode);
+        var response = await _client.PostAsync("/api/application/shutdown-locked", null);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True((await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("success").GetBoolean());
+    }
+
+    [Fact]
     public async Task CoordinatedBackupRequiresCompleteRoundAndCreatesRestorableBackup()
     {
         const string url = "/api/update/coordinated-backup";
@@ -738,15 +788,17 @@ public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Progra
         var view = (await (await _client.PostAsync("/api/update/view/register", null)).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("viewId").GetString();
         var round = (await (await _client.PostAsync("/api/update/save-round/begin", null)).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("roundId").GetString();
         Assert.Equal(HttpStatusCode.Conflict, (await _client.PostAsJsonAsync("/api/application/shutdown", new { roundId = round })).StatusCode);
-        Assert.True(_factory.Services.GetRequiredService<KeyManager>().IsUnlocked);
+        var keys = _factory.Services.GetRequiredService<KeyManager>();
+        var backupService = _factory.Services.GetRequiredService<Klausurfix.Infrastructure.Backup.BackupService>();
+        var stopping = _factory.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping;
+        Assert.True(keys.IsUnlocked);
         Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/update/view/respond", new { viewId = view, roundId = round, saved = true })).StatusCode);
         var shutdown = await _client.PostAsJsonAsync("/api/application/shutdown", new { roundId = round });
         Assert.Equal(HttpStatusCode.OK, shutdown.StatusCode);
         await shutdown.Content.ReadAsStringAsync();
-        var backups = _factory.Services.GetRequiredService<Klausurfix.Infrastructure.Backup.BackupService>().GetManagedBackups();
+        var backups = backupService.GetManagedBackups();
         Assert.Contains(backups, b => b.FileName.StartsWith("klausurfix_update_", StringComparison.Ordinal));
-        Assert.False(_factory.Services.GetRequiredService<KeyManager>().IsUnlocked);
-        var stopping = _factory.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping;
+        Assert.False(keys.IsUnlocked);
         Assert.True(stopping.IsCancellationRequested || stopping.WaitHandle.WaitOne(TimeSpan.FromSeconds(2)));
     }
 }

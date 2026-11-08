@@ -177,12 +177,18 @@ internal sealed class InstallerWindow : Form
             {
                 ((IPersistFile)link).Save(temporary, false);
                 File.Move(temporary, shortcut);
+                // Tell Explorer about the final name after the atomic move.
+                SHChangeNotify(0x00000002, 0x0005, shortcut, IntPtr.Zero); // SHCNE_CREATE, SHCNF_PATHW
+                SHChangeNotify(0x00001000, 0x0005, desktop, IntPtr.Zero); // SHCNE_UPDATEDIR
             }
             finally { if (File.Exists(temporary)) File.Delete(temporary); }
         }
         finally { Marshal.FinalReleaseComObject(link); }
         return "Eine Desktop-Verknüpfung wurde erstellt.";
     }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern void SHChangeNotify(uint eventId, uint flags, string item1, IntPtr item2);
 
     [ComImport, Guid("000214F9-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IShellLinkW

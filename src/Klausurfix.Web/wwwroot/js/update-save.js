@@ -108,6 +108,7 @@ export function createUpdateSaveCoordinator({ save, report, freeze }) {
     }).catch(() => {});
   });
   return {
+    stopped() { completeShutdown(true); },
     async request(afterSave, { shutdown = false } = {}) {
       if (currentRound) throw new Error("Eine Speicheraufforderung läuft bereits.");
       if (!viewId) throw new Error("Dieser Tab konnte noch nicht registriert werden. Bitte erneut versuchen.");

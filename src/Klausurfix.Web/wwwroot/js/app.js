@@ -367,6 +367,20 @@ function showStoppedScreen() {
 
 window.addEventListener("klausurfix:shutdown-complete", showStoppedScreen);
 
+async function shutdownWithoutBackup(messageId, question) {
+  if (!confirm(question)) return;
+  try {
+    await api.request("/api/application/shutdown-locked", { method: "POST" });
+    updateSave.stopped();
+  } catch (err) {
+    document.getElementById(messageId).textContent = err.message || "Klausurfix konnte nicht beendet werden.";
+  }
+}
+document.getElementById("shutdownLockedBtn").addEventListener("click", () =>
+  shutdownWithoutBackup("unlockMessage", "Klausurfix ohne neue Sicherung beenden? Nicht gespeicherte Eingaben in offenen Ansichten können verloren gehen. Für ein Update vorher entsperren und eine Sicherung erstellen."));
+document.getElementById("shutdownSetupBtn").addEventListener("click", () =>
+  shutdownWithoutBackup("shutdownSetupMessage", "Klausurfix beenden? Die Einrichtung wird nicht abgeschlossen und eingegebene Angaben gehen verloren."));
+
 document.getElementById("shutdownBtn").addEventListener("click", async () => {
   try {
     if (!confirm("Klausurfix jetzt sichern und beenden? Bitte offene Formulare vorher speichern oder schließen.")) return;
@@ -1821,11 +1835,12 @@ document.getElementById("dangerDeleteBackupsBtn").addEventListener("click", () =
 });
 
 document.getElementById("dangerFullResetBtn").addEventListener("click", () => {
-  openPinConfirmModal("Vollständiges Zurücksetzen (Factory Reset)", "ACHTUNG: Dies löscht die aktive Datenbank, alle lokalen Sicherungen und Sicherheitsschlüssel! Die App kehrt zum Einrichtungszustand zurück.", async (pin) => {
+  openPinConfirmModal("Vollständiges Zurücksetzen (Factory Reset)", "ACHTUNG: Dies löscht die aktive Datenbank, alle lokalen Sicherungen und Sicherheitsschlüssel! Anschließend wird Klausurfix beendet. Beim nächsten Start beginnt die Einrichtung.", async (pin) => {
     try {
       await api.dangerFullReset(pin);
-      showToast("App wurde vollständig zurückgesetzt.", "info");
-      window.location.reload();
+      updateSave.stopped();
+      document.querySelector("#stoppedView h1").textContent = "Klausurfix wurde zurückgesetzt und beendet";
+      document.querySelector("#stoppedView p").textContent = "Sie können diesen Tab schließen. Beim nächsten Start beginnt die Einrichtung.";
     } catch (err) {
       showToast(err.message, "error");
     }

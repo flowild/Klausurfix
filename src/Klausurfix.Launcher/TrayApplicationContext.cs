@@ -29,7 +29,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void StopBackend(Action openBrowser)
     {
-        MessageBox.Show("Bitte Klausurfix in der Anwendung entsperren und dort „Beenden“ wählen. Dabei werden Eingaben gespeichert und eine Sicherung erstellt.",
+        MessageBox.Show("Bitte Klausurfix in der Anwendung über „Beenden“ schließen. Im gesperrten Zustand wird keine neue Sicherung erstellt.",
             "Klausurfix beenden", MessageBoxButtons.OK, MessageBoxIcon.Information);
         try { openBrowser(); }
         catch { MessageBox.Show("Klausurfix konnte nicht im Browser geöffnet werden.", "Klausurfix", MessageBoxButtons.OK, MessageBoxIcon.Error); }

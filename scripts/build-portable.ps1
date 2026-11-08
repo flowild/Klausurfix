@@ -1,6 +1,8 @@
 param(
     [ValidatePattern('^\d+\.\d+\.\d+$')][string]$PackageVersion = '0.2.4',
-    [switch]$UpdateOnly
+    [switch]$UpdateOnly,
+    [switch]$SingleFileBackend,
+    [ValidateSet('win-arm64', 'win-x64')][string[]]$Runtimes = @('win-arm64', 'win-x64')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -10,7 +12,6 @@ $outputRoot = Join-Path (Join-Path $projectRoot 'release') $packageVersion
 $projectPath = Join-Path $projectRoot 'src\Klausurfix.Web\Klausurfix.Web.csproj'
 $launcherPath = Join-Path $projectRoot 'src\Klausurfix.Launcher\Klausurfix.Launcher.csproj'
 $nugetRoot = Join-Path $env:USERPROFILE '.nuget\packages'
-$runtimes = @('win-arm64', 'win-x64')
 $packageBuilder = Join-Path $projectRoot 'update-entwicklung\Paketbau\Paketbau.csproj'
 $assistantBuilder = Join-Path $projectRoot 'update-entwicklung\erzeuge-pruef-assistent.ps1'
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
@@ -31,7 +32,9 @@ try {
         $appDir = Join-Path $packageRoot 'app'
         $buildDir = Join-Path $workRoot "build-$rid"
         New-Item -ItemType Directory -Force -Path $appDir | Out-Null
-        & dotnet publish $projectPath -c Release -r $rid --self-contained true -o $appDir --artifacts-path $buildDir -p:Version=$packageVersion -p:DebugType=None -p:NuGetAudit=false
+        $backendOptions = @()
+        if ($SingleFileBackend) { $backendOptions = @('-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true') }
+        & dotnet publish $projectPath -c Release -r $rid --self-contained true -o $appDir --artifacts-path $buildDir -p:Version=$packageVersion -p:DebugType=None -p:NuGetAudit=false @backendOptions
         if ($LASTEXITCODE -ne 0) { throw "Build fehlgeschlagen: $rid" }
         & dotnet publish $launcherPath -c Release -r $rid --self-contained true -o $packageRoot --artifacts-path (Join-Path $workRoot "launcher-$rid") -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:Version=$packageVersion -p:DebugType=None -p:NuGetAudit=false
         if ($LASTEXITCODE -ne 0) { throw "Starter-Build fehlgeschlagen: $rid" }

@@ -100,7 +100,7 @@ app.Use(async (context, next) =>
         path == "/api/update/view/respond" || path == "/api/update/view/unregister" ||
         path == "/api/update/save-round/begin" || path == "/api/update/save-round/status" ||
         path == "/api/update/save-round/cancel" || path == "/api/update/coordinated-backup" ||
-        path == "/api/application/shutdown";
+        path == "/api/application/shutdown" || path == "/api/application/shutdown-locked";
     if (!context.Request.Path.StartsWithSegments("/api") || HttpMethods.IsGet(context.Request.Method) ||
         HttpMethods.IsHead(context.Request.Method) || HttpMethods.IsOptions(context.Request.Method) || coordination)
     {
@@ -127,7 +127,8 @@ app.Use(async (context, next) =>
         path == "/api/update/view/poll" || path == "/api/update/view/respond" || path == "/api/update/view/unregister" ||
         path == "/api/auth/unlock-pin" ||
         path == "/api/auth/unlock-recovery" || path == "/api/auth/unlock-hello" ||
-        path == "/api/auth/hello/unlock/options" || path == "/api/auth/hello/unlock/complete";
+        path == "/api/auth/hello/unlock/options" || path == "/api/auth/hello/unlock/complete" ||
+        path == "/api/application/shutdown-locked";
     if (path.StartsWithSegments("/api") && !isPublic)
     {
         var keyManager = context.RequestServices.GetRequiredService<KeyManager>();
@@ -161,6 +162,25 @@ app.UseStaticFiles(new StaticFileOptions
 
 // Used by the local launcher to distinguish this instance from another service.
 app.MapGet("/api/health", () => Results.Text("Klausurfix/1", "text/plain"));
+
+app.MapPost("/api/application/shutdown-locked", async (UpdateWriteGate gate, KeyManager km,
+    HttpContext context, IHostApplicationLifetime lifetime) =>
+{
+    var freeze = await gate.FreezeAsync(context.RequestAborted);
+    if (freeze is null) return Results.Conflict(new { error = "Eine andere Aktion läuft bereits. Bitte erneut versuchen." });
+    if (km.IsUnlocked)
+    {
+        freeze.Dispose();
+        return Results.Conflict(new { error = "Klausurfix ist entsperrt. Bitte dort über „Beenden“ sichern und schließen." });
+    }
+    context.Response.OnCompleted(() =>
+    {
+        lifetime.StopApplication();
+        freeze.Dispose();
+        return Task.CompletedTask;
+    });
+    return Results.Ok(new { success = true });
+});
 
 app.MapPost("/api/application/shutdown", async (UpdateRoundRequest request, UpdateViewRegistry views,
     UpdatePreparation preparation, HttpContext context, KeyManager km, LocalSessions sessions, IHostApplicationLifetime lifetime) =>
@@ -914,16 +934,23 @@ app.MapPost("/api/settings/danger/delete-all-backups", (DangerActionRequest req,
     return Results.Ok(new { success = true, deletedCount = count, message = $"{count} Sicherungen wurden gelöscht." });
 });
 
-app.MapPost("/api/settings/danger/full-reset", (DangerActionRequest req, KeyManager km, CleanupService cleanup, AutomaticBackupWorker automaticBackup) =>
+app.MapPost("/api/settings/danger/full-reset", (DangerActionRequest req, KeyManager km, CleanupService cleanup, AutomaticBackupWorker automaticBackup, HttpContext context, LocalSessions sessions, IHostApplicationLifetime lifetime) =>
 {
     var (success, msg, _) = km.UnlockWithPin(req.Pin);
     if (!success)
         return Results.BadRequest(new { error = "Falsche PIN. Vollständiges Zurücksetzen abgebrochen." });
 
     automaticBackup.SetReady(false);
-    cleanup.FullReset();
+    try { cleanup.FullReset(); }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+    {
+        sessions.RevokeAll(context);
+        return Results.Json(new { error = "Das Zurücksetzen konnte nicht vollständig abgeschlossen werden. Einige Dateien wurden möglicherweise bereits gelöscht. Klausurfix bleibt geöffnet." }, statusCode: 500);
+    }
     automaticBackup.ResetSchedule();
-    return Results.Ok(new { success = true, message = "Anwendung wurde vollständig zurückgesetzt." });
+    sessions.RevokeAll(context);
+    context.Response.OnCompleted(() => { lifetime.StopApplication(); return Task.CompletedTask; });
+    return Results.Ok(new { success = true, message = "Anwendung wurde vollständig zurückgesetzt und beendet." });
 });
 
 #endregion

@@ -26,10 +26,14 @@ internal sealed class UpdateWindow : Form
     private readonly TextBox _recoveryKey;
     private readonly Button _install;
     private readonly CheckBox _noData;
+    private readonly Label _selectedInstallation;
+    private string? _installationPath;
     private string? _backupPath;
     private readonly System.Windows.Forms.Timer _verificationTimer = new() { Interval = 800 };
     private int _verificationGeneration;
     private bool _packageValid;
+    private bool _checkingPackage;
+    private string? _packageError;
 
     public UpdateWindow()
     {
@@ -64,7 +68,38 @@ internal sealed class UpdateWindow : Form
         statusPanel.Controls.Add(_status, 0, 0);
         _progress = new ProgressBar { Dock = DockStyle.Fill, Height = 18, Style = ProgressBarStyle.Marquee, MarqueeAnimationSpeed = 30, Visible = false, Margin = new Padding(0, 0, 0, 20), AccessibleName = "Update wird installiert" };
         statusPanel.Controls.Add(_progress, 0, 1);
+        var retryCheck = new Button { Text = "Prüfung erneut starten", AutoSize = true, Margin = new Padding(0, 0, 0, 12) };
+        StyleButton(retryCheck, false);
+        retryCheck.Click += async (_, _) => { if (!_installing) await CheckPackageAsync(); };
+        statusPanel.Controls.Add(retryCheck, 0, 2);
         layout.Controls.Add(statusPanel, 0, 3);
+        _installationPath = InstallationRegistration.Find();
+        if (_installationPath is null)
+        {
+            var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            var defaultRoot = Path.Combine(programFiles, "Klausurfix");
+            if (!string.IsNullOrWhiteSpace(programFiles) && File.Exists(Path.Combine(defaultRoot, "Klausurfix.exe")) &&
+                File.Exists(Path.Combine(defaultRoot, "update-starter-v1.txt")))
+                _installationPath = defaultRoot;
+        }
+        var installationRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0, 0, 0, 16) };
+        installationRow.Controls.Add(new Label { Text = "Klausurfix-Programmordner", AutoSize = true, Font = new Font(Font, FontStyle.Bold) });
+        _selectedInstallation = new Label { AutoSize = true, MaximumSize = new Size(600, 0), Text = _installationPath ?? "Kein Programmordner ausgewählt." };
+        installationRow.Controls.Add(_selectedInstallation);
+        var chooseInstallation = new Button { Text = "Programmordner auswählen …", AutoSize = true };
+        StyleButton(chooseInstallation, false);
+        chooseInstallation.Click += (_, _) =>
+        {
+            if (_installing) return;
+            using var dialog = new FolderBrowserDialog { Description = "Klausurfix-Programmordner mit Klausurfix.exe auswählen", UseDescriptionForTitle = true };
+            if (_installationPath is not null && Directory.Exists(_installationPath)) dialog.SelectedPath = _installationPath;
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+            _installationPath = dialog.SelectedPath;
+            _selectedInstallation.Text = _installationPath;
+        };
+        installationRow.Controls.Add(chooseInstallation);
+        statusPanel.Controls.Add(installationRow, 0, 3);
+        statusPanel.RowCount = 4;
         layout.Controls.Add(new Label { Text = "Sicherung", AutoSize = true, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(0, 0, 0, 6) }, 0, 4);
         _selectedBackup = new Label { AutoSize = true, ForeColor = Color.FromArgb(71, 85, 105), Margin = new Padding(0, 0, 0, 10) };
         layout.Controls.Add(_selectedBackup, 0, 5);
@@ -182,8 +217,8 @@ internal sealed class UpdateWindow : Form
         var noData = _noData.Checked;
         if (!noData && _backupPath is null) { _status.Text = "Bitte zuerst eine aktuelle Sicherung auswählen."; return; }
         if (!noData && string.IsNullOrWhiteSpace(_recoveryKey.Text)) { _status.Text = "Bitte den Wiederherstellungsschlüssel eingeben."; return; }
-        var root = InstallationRegistration.Find();
-        if (root is null) { _status.Text = "Keine registrierte Klausurfix-Installation gefunden. Bitte Klausurfix zuerst mit dem Installer einrichten. Ältere portable Installationen sind nicht registriert."; return; }
+        var root = _installationPath;
+        if (string.IsNullOrWhiteSpace(root)) { _status.Text = "Bitte den Klausurfix-Programmordner auswählen."; return; }
         var backupPath = _backupPath;
         var recoveryKey = _recoveryKey.Text;
         _verificationTimer.Stop();
@@ -216,7 +251,7 @@ internal sealed class UpdateWindow : Form
                 backupStream.CopyTo(backupBuffer);
                 return UpdateWorkflow.Install(package, root, architecture, backupBuffer.ToArray(), recoveryKey, true);
             });
-            _status.Text = $"Version {result.Version} wurde aktiviert. Bitte Klausurfix über die Desktop-Verknüpfung mit dem normalen Benutzerkonto starten.";
+            _status.Text = $"Version {result.Version} wurde aktiviert. Bitte Klausurfix über die Verknüpfung oder Klausurfix.exe im gewählten Programmordner mit dem normalen Benutzerkonto starten.";
             _progress.Visible = false;
             MessageBox.Show(this, _status.Text, "Klausurfix Update", MessageBoxButtons.OK, MessageBoxIcon.Information);
             succeeded = true;
@@ -238,7 +273,14 @@ internal sealed class UpdateWindow : Form
         _verificationTimer.Stop();
         if (_noData.Checked)
         {
-            try { EmptyDataGuard.EnsureNoData(); _status.Text = "Keine vorhandenen Klausurfix-Dateien gefunden."; _install.Enabled = _packageValid; }
+            try
+            {
+                EmptyDataGuard.EnsureNoData();
+                if (!_packageValid)
+                    _status.Text = _checkingPackage ? "Das Updatepaket wird noch geprüft …" :
+                        _packageError ?? "Das Updatepaket ist noch nicht geprüft. Bitte die Prüfung erneut starten.";
+                else { _status.Text = "Keine vorhandenen Klausurfix-Dateien gefunden. Update ohne Sicherung möglich."; _install.Enabled = true; }
+            }
             catch (Exception ex) { _status.Text = ex.Message; }
             return;
         }
@@ -265,7 +307,8 @@ internal sealed class UpdateWindow : Form
                 BackupService.VerifyBackup(buffer.ToArray(), key);
             });
             if (generation != _verificationGeneration) return;
-            _status.Text = "✓ Sicherung mit dem Wiederherstellungsschlüssel geprüft.";
+            _status.Text = _packageValid ? "✓ Sicherung mit dem Wiederherstellungsschlüssel geprüft." :
+                _packageError ?? "Das Updatepaket ist noch nicht geprüft. Bitte die Prüfung erneut starten.";
             _install.Enabled = _packageValid;
         }
         catch (Exception ex) { if (generation == _verificationGeneration) _status.Text = $"Die Sicherung konnte nicht geprüft werden. Es wurde nichts installiert.\n\n{ex.Message}"; }
@@ -273,6 +316,12 @@ internal sealed class UpdateWindow : Form
 
     private async Task CheckPackageAsync()
     {
+        if (_checkingPackage || _installing) return;
+        _checkingPackage = true;
+        _packageValid = false;
+        _packageError = null;
+        _install.Enabled = false;
+        _status.Text = "Dienst und Updatepaket werden geprüft …";
         try
         {
             var result = await Task.Run(() =>
@@ -296,7 +345,9 @@ internal sealed class UpdateWindow : Form
         }
         catch (Exception ex)
         {
-            _status.Text = $"Das Paket konnte nicht geprüft werden. Es wurde nichts installiert.\n\n{ex.Message}";
+            _packageError = $"Die Prüfung konnte nicht abgeschlossen werden. Es wurde nichts installiert.\n\n{ex.Message}\n\nBitte das Problem beheben und „Prüfung erneut starten“ wählen.";
+            _status.Text = _packageError;
         }
+        finally { _checkingPackage = false; }
     }
 }
