@@ -287,6 +287,23 @@ public static class ExamCalculator
             }
         }
 
+        var belowFive = gradedResults.Count(r => r.FinalGrade < 5);
+        var hasIncomplete = results.Any(r => r.Status == StudentExamStatus.Incomplete || (r.Status == StudentExamStatus.Graded && !r.FinalGrade.HasValue));
+        string approvalNotice;
+        if (profile.System != GradingSystem.Notenpunkte)
+            approvalNotice = "Die Genehmigungsregel für weniger als 5 Notenpunkte ist bei Schulnoten nicht anwendbar.";
+        else if (gradedResults.Count == 0)
+            approvalNotice = "Die Genehmigungspflicht kann noch nicht beurteilt werden: Es liegen keine gewerteten Ergebnisse vor.";
+        else
+        {
+            var required = (long)belowFive * 3 >= gradedResults.Count;
+            approvalNotice = $"{(hasIncomplete ? "Vorläufig: " : "")}" +
+                $"Die Klausur {(required ? "muss" : "muss nach dieser Regel nicht")} genehmigt werden: " +
+                $"{belowFive} von {gradedResults.Count} gewerteten Ergebnissen liegen unter 5 Notenpunkten (Grenze: mindestens ein Drittel)." +
+                (hasIncomplete ? " Unvollständige Ergebnisse sind noch nicht berücksichtigt." : "") +
+                " Nicht mitgeschriebene und fehlende Ergebnisse werden nicht mitgezählt.";
+        }
+
         return new ExamSummary
         {
             TotalStudents = results.Count,
@@ -295,6 +312,7 @@ public static class ExamCalculator
             MissingCount = results.Count(r => r.Status == StudentExamStatus.Missing),
             NotParticipatedCount = results.Count(r => r.Status == StudentExamStatus.NotParticipated),
             IncompleteCount = results.Count(r => r.Status == StudentExamStatus.Incomplete),
+            ApprovalNotice = approvalNotice,
             ClassAverage = average,
             Unit = profile.System == GradingSystem.Schulnoten ? "Noten" : "Notenpunkte",
             GradeDistribution = distribution,

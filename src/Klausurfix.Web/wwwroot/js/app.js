@@ -851,7 +851,9 @@ async function loadKlassen() {
           <td style="width: 40px; color: var(--gray-500);">${idx + 1}</td>
           <td style="font-weight: 600;">${escapeHtml(s.fullName || s.FullName)}</td>
           <td style="text-align: right;">
-            <button class="btn btn-secondary btn-sm delete-student-btn" data-class="${cls.id}" data-id="${s.id}" style="color: var(--danger);">&times;</button>
+            <button class="btn btn-secondary btn-sm move-student-btn" data-class="${cls.id}" data-id="${s.id}" data-direction="-1" aria-label="${escapeHtml(s.fullName || s.FullName)} nach oben verschieben" ${idx === 0 ? "disabled" : ""}>↑</button>
+            <button class="btn btn-secondary btn-sm move-student-btn" data-class="${cls.id}" data-id="${s.id}" data-direction="1" aria-label="${escapeHtml(s.fullName || s.FullName)} nach unten verschieben" ${idx === students.length - 1 ? "disabled" : ""}>↓</button>
+            <button class="btn btn-secondary btn-sm delete-student-btn" data-class="${cls.id}" data-id="${s.id}" aria-label="${escapeHtml(s.fullName || s.FullName)} löschen" style="color: var(--danger);">&times;</button>
           </td>
         </tr>
       `).join("");
@@ -870,6 +872,7 @@ async function loadKlassen() {
             <button class="btn btn-secondary btn-sm delete-class-btn" data-class="${cls.id}" style="color: var(--danger);">Klasse löschen</button>
           </div>
 
+        <p class="form-hint">Die Reihenfolge gilt für neu erstellte Klausuren. Bestehende Klausuren behalten ihre Reihenfolge.</p>
         <div class="table-responsive">
           <table class="data-table" style="font-size: 0.9rem;">
             <thead>
@@ -887,6 +890,25 @@ async function loadKlassen() {
         </div>
       `;
 
+      card.querySelectorAll(".move-student-btn").forEach(button => {
+        button.addEventListener("click", async () => {
+          const index = students.findIndex(student => student.id === button.dataset.id);
+          const target = index + Number(button.dataset.direction);
+          if (index < 0 || target < 0 || target >= students.length) return;
+          card.querySelectorAll(".move-student-btn").forEach(b => b.disabled = true);
+          const ids = students.map(student => student.id);
+          [ids[index], ids[target]] = [ids[target], ids[index]];
+          try {
+            await api.reorderStudents(cls.id, ids);
+            await loadKlassen();
+            const restored = [...document.querySelectorAll(".move-student-btn")].find(b => b.dataset.class === cls.id && b.dataset.id === button.dataset.id && b.dataset.direction === button.dataset.direction && !b.disabled);
+            restored?.focus();
+          } catch (err) {
+            showToast(err.message, "error");
+            await loadKlassen();
+          }
+        });
+      });
       container.appendChild(card);
     }
 
@@ -1220,7 +1242,7 @@ function renderMatrixTable(exam, entries) {
         <td>
           <input type="text" class="matrix-input task-pts-cell"
             data-task="${t.taskNumber}" data-max="${t.maxPoints}" data-legacy="${val !== null && val !== undefined && !Number.isInteger(val) ? val : ""}"
-            value="${valStr}" placeholder="0" inputmode="numeric" ${readOnly}>
+            data-expression="${escapeHtml(entry.taskPointExpressions?.[t.taskNumber] || "")}" value="${valStr}" placeholder="0" inputmode="text" maxlength="256" aria-label="Aufgabe ${t.taskNumber}, ${escapeHtml(entry.studentName)}: Punkte oder Addition" ${readOnly}>
         </td>
       `;
     });
@@ -1261,9 +1283,21 @@ function renderMatrixTable(exam, entries) {
     recalculateRow(tr, exam, entries[rowIdx]);
     updateErrorThresholds(tr, exam, entries[rowIdx]);
 
+    tr.querySelectorAll(".task-pts-cell").forEach(input => {
+      input.addEventListener("focus", () => {
+        if (input.dataset.expression) input.value = input.dataset.expression;
+      });
+      input.addEventListener("blur", () => {
+        if (input.validity.valid && input.dataset.expression) {
+          const sum = sumTaskExpression(input.dataset.expression);
+          if (sum !== null) input.value = String(sum);
+        }
+      });
+    });
     if (exam.isArchived) return;
     tr.querySelectorAll(".matrix-input, .row-status-select").forEach(input => {
       input.addEventListener("input", () => {
+        if (input.classList.contains("task-pts-cell")) input.dataset.expression = input.value.includes("+") ? input.value : "";
         if (input.classList.contains("row-words-cell")) updateErrorThresholds(tr, exam, entries[rowIdx]);
         if (!collectRowData(tr, exam, entries[rowIdx])) {
           state.saveRevision = (state.saveRevision || 0) + 1;
@@ -1321,19 +1355,28 @@ async function updateErrorThresholds(tr, exam, entry) {
   }
 }
 
+function sumTaskExpression(value) {
+  if (value.length > 256 || !/^\s*\d+\s*(?:\+\s*\d+\s*)+$/.test(value)) return null;
+  const sum = value.split("+").reduce((total, part) => total + Number(part.trim()), 0);
+  return Number.isSafeInteger(sum) && sum <= 1000000 ? sum : null;
+}
+
 function collectRowData(tr, exam, entry) {
   const taskPoints = {};
+  const taskPointExpressions = {};
   let valid = true;
   tr.querySelectorAll(".task-pts-cell").forEach(inp => {
     const taskNum = parseInt(inp.dataset.task, 10);
     const maxPts = parseFloat(inp.dataset.max);
-    const val = parseGermanNumber(inp.value);
+    const expression = inp.dataset.expression;
+    const val = expression ? sumTaskExpression(expression) : parseGermanNumber(inp.value);
     const legacy = inp.dataset.legacy !== "" && val === Number(inp.dataset.legacy);
     const invalid = inp.value.trim() !== "" && (val === null || val < 0 || val > maxPts || (!Number.isInteger(val) && !legacy));
-    inp.setCustomValidity(invalid ? `Bitte ganze Punkte zwischen 0 und ${maxPts} eingeben.` : "");
+    inp.setCustomValidity(invalid ? `Bitte ganze Punkte oder eine Addition eingeben; die Summe muss zwischen 0 und ${maxPts} liegen.` : "");
     inp.setAttribute("aria-invalid", String(invalid));
     valid = valid && !invalid;
     taskPoints[taskNum] = val;
+    if (expression) taskPointExpressions[taskNum] = expression;
   });
 
   const wordsInput = tr.querySelector(".row-words-cell");
@@ -1346,6 +1389,7 @@ function collectRowData(tr, exam, entry) {
   }
   if (!valid) return false;
   entry.taskPoints = taskPoints;
+  entry.taskPointExpressions = taskPointExpressions;
   entry.wordCount = wordsInput.value !== "" ? Number(wordsInput.value) : null;
   entry.errorCount = errorsInput.value !== "" ? Number(errorsInput.value) : null;
   entry.status = parseInt(tr.querySelector(".row-status-select").value, 10);
@@ -1487,6 +1531,7 @@ async function openExamAuswertung(examId, fromHistory = false) {
   state.activeExam = null;
   document.getElementById("auswertungExamTitle").textContent = "Auswertung wird geladen …";
   document.getElementById("auswertungExamMeta").textContent = "";
+  document.getElementById("auswertungApprovalNotice").textContent = "Auswertung wird geladen …";
   document.getElementById("auswertungArchivedBadge").hidden = true;
   document.getElementById("auswertungCoverSheetBtn").disabled = true;
   document.getElementById("recalculateBtn").disabled = true;
@@ -1520,6 +1565,7 @@ async function openExamAuswertung(examId, fromHistory = false) {
     document.getElementById("auswertungGradedCount").textContent = summary.gradedCount;
     document.getElementById("auswertungTotalCount").textContent = `von ${summary.totalStudents} Schülern`;
     document.getElementById("auswertungExcludedCount").textContent = summary.excludedCount;
+    document.getElementById("auswertungApprovalNotice").textContent = summary.approvalNotice;
 
     // Render Notenspiegel Chart & Table
     renderNotenspiegel(summary.gradeDistribution, summary.unit);

@@ -57,6 +57,10 @@ public class DocxExportService
                 )
             ));
 
+            body.AppendChild(new Paragraph(new ParagraphProperties(new SpacingBetweenLines { After = "200" }),
+                new Run(new RunProperties(new Bold()), new Text("Genehmigung der Klausur: ")),
+                new Run(new Text(summary.ApprovalNotice))));
+
             // Results Table
             var table = new Table();
 
@@ -111,11 +115,7 @@ public class DocxExportService
 
                 foreach (var task in exam.Tasks)
                 {
-                    string ptsStr = "-";
-                    if (entry != null && entry.TaskPoints.TryGetValue(task.TaskNumber, out var p) && p.HasValue)
-                    {
-                        ptsStr = p.Value.ToString("G", deCulture);
-                    }
+                    string ptsStr = TaskPointExpression.Format(entry, task.TaskNumber);
                     row.Append(CreateCell(ptsStr));
                 }
 
@@ -141,6 +141,22 @@ public class DocxExportService
             }
 
             body.AppendChild(table);
+
+            body.AppendChild(new Paragraph(new ParagraphProperties(new SpacingBetweenLines { Before = "300", After = "120" }),
+                new Run(new RunProperties(new Bold(), new Color { Val = "124E4C" }, new FontSize { Val = "24" }), new Text("Fehlerschwellen"))));
+            body.AppendChild(new Paragraph(new Run(new Text("Ab der angegebenen Fehlerzahl gilt der jeweilige Abzug. Prozentangaben beziehen sich auf die maximale Gesamtpunktzahl."))));
+            var thresholdsTable = new Table(new TableProperties(new TableWidth { Type = TableWidthUnitValues.Pct, Width = "5000" }),
+                new TableGrid(new GridColumn(), new GridColumn(), new GridColumn(), new GridColumn()));
+            thresholdsTable.AppendChild(new TableRow(new TableRowProperties(new TableHeader()),
+                CreateCell("#", isBold: true, isHeader: true), CreateCell("Schüler/in", isBold: true, isHeader: true),
+                CreateCell("Wörter", isBold: true, isHeader: true), CreateCell("Fehlerzahl: Abzug", isBold: true, isHeader: true)));
+            for (var i = 0; i < exam.StudentEntries.Count; i++)
+            {
+                var entry = exam.StudentEntries[i];
+                thresholdsTable.AppendChild(new TableRow(CreateCell((i + 1).ToString()), CreateCell(entry.StudentName),
+                    CreateCell(entry.WordCount?.ToString() ?? "–"), CreateCell(ReportFormatting.ErrorThresholds(entry.WordCount, exam.GradingProfileSnapshot))));
+            }
+            body.AppendChild(thresholdsTable);
 
             // Spacing
             body.AppendChild(new Paragraph(new ParagraphProperties(new SpacingBetweenLines { Before = "300", After = "120" }),

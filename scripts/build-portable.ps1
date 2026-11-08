@@ -1,6 +1,7 @@
 param(
     [ValidatePattern('^\d+\.\d+\.\d+$')][string]$PackageVersion = '0.2.4',
     [switch]$UpdateOnly,
+    [switch]$KeepUpdatePackage,
     [switch]$SingleFileBackend,
     [ValidateSet('win-arm64', 'win-x64')][string[]]$Runtimes = @('win-arm64', 'win-x64')
 )
@@ -16,7 +17,7 @@ $packageBuilder = Join-Path $projectRoot 'update-entwicklung\Paketbau\Paketbau.c
 $assistantBuilder = Join-Path $projectRoot 'update-entwicklung\erzeuge-pruef-assistent.ps1'
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
 foreach ($rid in $runtimes) {
-    $names = if ($UpdateOnly) { @("Klausurfix-Update-$packageVersion-$rid.exe") } else { @("Klausurfix-$packageVersion-$rid.zip", "Klausurfix-Update-$packageVersion-$rid.zip", "Klausurfix-Update-$packageVersion-$rid.exe", "Klausurfix-Setup-$packageVersion-$rid.exe") }
+    $names = if ($UpdateOnly) { if ($KeepUpdatePackage) { @("Klausurfix-Update-$packageVersion-$rid.zip", "Klausurfix-Update-$packageVersion-$rid.exe") } else { @("Klausurfix-Update-$packageVersion-$rid.exe") } } else { @("Klausurfix-$packageVersion-$rid.zip", "Klausurfix-Update-$packageVersion-$rid.zip", "Klausurfix-Update-$packageVersion-$rid.exe", "Klausurfix-Setup-$packageVersion-$rid.exe") }
     foreach ($name in $names) {
         if (Test-Path -LiteralPath (Join-Path $outputRoot $name)) { throw "Ausgabedatei existiert bereits: $name" }
     }
@@ -81,7 +82,7 @@ try {
             Compress-Archive -LiteralPath $packageRoot -DestinationPath $zipPath -CompressionLevel Optimal
             Write-Output "Erstellt: $zipPath"
         }
-        $updatePackage = Join-Path $(if ($UpdateOnly) { $workRoot } else { $outputRoot }) "Klausurfix-Update-$packageVersion-$rid.zip"
+        $updatePackage = Join-Path $(if ($UpdateOnly -and -not $KeepUpdatePackage) { $workRoot } else { $outputRoot }) "Klausurfix-Update-$packageVersion-$rid.zip"
         & dotnet run --project $packageBuilder -- $packageRoot $packageVersion $rid $updatePackage
         if ($LASTEXITCODE -ne 0) { throw "Updatepaket konnte nicht erstellt werden: $rid" }
         $updateExe = Join-Path $outputRoot "Klausurfix-Update-$packageVersion-$rid.exe"

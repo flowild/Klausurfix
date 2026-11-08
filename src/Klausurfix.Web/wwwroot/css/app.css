@@ -517,6 +517,10 @@ body {
   background-color: var(--primary-light);
 }
 
+.matrix-input.task-pts-cell {
+  width: 150px;
+}
+
 .task-pts-input,
 .row-words-cell,
 .row-errors-cell {

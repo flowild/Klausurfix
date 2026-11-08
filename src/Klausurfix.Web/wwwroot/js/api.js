@@ -137,6 +137,9 @@ export const api = {
       body: JSON.stringify(student)
     });
   },
+  reorderStudents(classId, studentIds) {
+    return this.request(`/api/klassen/${classId}/students/reihenfolge`, { method: "PUT", body: JSON.stringify({ studentIds }) });
+  },
   deleteStudent(classId, studentId) {
     return this.request(`/api/klassen/${classId}/students/${studentId}`, { method: "DELETE" });
   },

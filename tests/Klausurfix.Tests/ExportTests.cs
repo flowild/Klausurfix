@@ -10,6 +10,47 @@ using DocumentFormat.OpenXml.Wordprocessing;
 
 public class ExportTests
 {
+    [Fact]
+    public void ReportsIncludeIndividualThresholdsEvenForIncompleteEntries()
+    {
+        var sample = CreateSampleExam();
+        var exam = sample with
+        {
+            GradingProfileSnapshot = GradingProfile.BeruflichesGymnasium() with { MaxDeduction = 1m },
+            StudentEntries = new() {
+                sample.StudentEntries[0] with { WordCount = 600, ErrorCount = null },
+                sample.StudentEntries[1] with { WordCount = 0 } }
+        };
+        using var stream = new MemoryStream(new DocxExportService().GenerateExamDocument(exam));
+        using var document = WordprocessingDocument.Open(stream, false);
+        var tables = document.MainDocumentPart!.Document!.Body!.Elements<Table>().ToList();
+        var rows = tables[1].Elements<TableRow>().ToList();
+        Assert.Contains("18: -1 NP", rows[1].InnerText);
+        Assert.DoesNotContain("36:", rows[1].InnerText);
+        Assert.Contains("Wortzahl fehlt oder ist 0", rows[2].InnerText);
+        Assert.Empty(new OpenXmlValidator().Validate(document));
+        Assert.NotEmpty(new PdfExportService().GenerateExamReport(exam));
+        var percent = exam with { GradingProfileSnapshot = GradingProfile.FachschuleSozialwesen(),
+            StudentEntries = new() { sample.StudentEntries[0] with { WordCount = 100 } } };
+        using var percentStream = new MemoryStream(new DocxExportService().GenerateExamDocument(percent));
+        using var percentDocument = WordprocessingDocument.Open(percentStream, false);
+        Assert.Contains("2: -1 %; 4: -3 %; 6: -6 %", percentDocument.MainDocumentPart!.Document!.Body!.InnerText);
+    }
+
+    [Fact]
+    public void ReportsIncludeTaskAdditionAndItsSum()
+    {
+        var sample = CreateSampleExam();
+        var exam = sample with { StudentEntries = new() { sample.StudentEntries[0] with
+            { TaskPointExpressions = new() { [1] = "5+4+5" } } } };
+        Assert.Equal("5 + 4 + 5 = 14", TaskPointExpression.Format(exam.StudentEntries[0], 1));
+        using var stream = new MemoryStream(new DocxExportService().GenerateExamDocument(exam));
+        using var document = WordprocessingDocument.Open(stream, false);
+        Assert.Contains("5 + 4 + 5 = 14", document.MainDocumentPart!.Document!.Body!.InnerText);
+        Assert.Contains("Genehmigung der Klausur:", document.MainDocumentPart.Document.Body.InnerText);
+        Assert.NotEmpty(new PdfExportService().GenerateExamReport(exam));
+    }
+
     [Theory]
     [InlineData(150, 5)]
     [InlineData(40, 20)]
@@ -49,8 +90,8 @@ public class ExportTests
         var body = document.MainDocumentPart?.Document?.Body;
         Assert.NotNull(body);
         var tables = body.Elements<Table>().ToList();
-        Assert.Equal(2, tables.Count);
-        var rows = tables[1].Elements<TableRow>().ToList();
+        Assert.Equal(3, tables.Count);
+        var rows = tables[2].Elements<TableRow>().ToList();
         Assert.Equal(2, rows.Count);
         Assert.Equal(17, rows[0].Elements<TableCell>().Count());
         Assert.Equal(17, rows[1].Elements<TableCell>().Count());

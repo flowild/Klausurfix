@@ -8,6 +8,7 @@ public record ExamSummary
     public int MissingCount { get; init; }
     public int NotParticipatedCount { get; init; }
     public int IncompleteCount { get; init; }
+    public string ApprovalNotice { get; init; } = string.Empty;
 
     public decimal? ClassAverage { get; init; }
     public string Unit { get; init; } = "Noten";

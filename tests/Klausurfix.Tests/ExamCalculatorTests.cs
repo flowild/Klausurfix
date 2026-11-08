@@ -7,6 +7,29 @@ using Xunit;
 public class ExamCalculatorTests
 {
     [Fact]
+    public void ApprovalRuleUsesFinalGradesAndExactThirdOfGradedResults()
+    {
+        var profile = GradingProfile.CreateDefaultNotenpunkte();
+        ExamStudentEntry Entry(int score, int errors = 0) => new() { StudentId = Guid.NewGuid().ToString(),
+            TaskPoints = new() { [1] = score }, WordCount = 100, ErrorCount = errors };
+        var exam = new Exam { Tasks = new() { new(1, "A", 100) }, GradingProfileSnapshot = profile,
+            StudentEntries = new() { Entry(45, 2), Entry(45), Entry(80) } };
+        var summary = ExamCalculator.CalculateExamSummary(exam);
+        Assert.Contains("muss genehmigt werden", summary.ApprovalNotice);
+        Assert.Contains("1 von 3", summary.ApprovalNotice);
+        exam.StudentEntries.Add(Entry(80));
+        Assert.Contains("muss nach dieser Regel nicht genehmigt", ExamCalculator.CalculateExamSummary(exam).ApprovalNotice);
+        exam.StudentEntries.Add(new ExamStudentEntry { Status = StudentExamStatus.NotParticipated });
+        exam.StudentEntries.Add(new ExamStudentEntry());
+        var provisional = ExamCalculator.CalculateExamSummary(exam).ApprovalNotice;
+        Assert.StartsWith("Vorläufig:", provisional);
+        Assert.Contains("1 von 4", provisional);
+        Assert.Contains("Unvollständige Ergebnisse", provisional);
+        Assert.Contains("keine gewerteten Ergebnisse", ExamCalculator.CalculateExamSummary(exam with { StudentEntries = new() }).ApprovalNotice);
+        Assert.Contains("nicht anwendbar", ExamCalculator.CalculateExamSummary(exam with { GradingProfileSnapshot = GradingProfile.FachschuleSozialwesen() }).ApprovalNotice);
+    }
+
+    [Fact]
     public void ErrorThresholds_UseWholeErrorsAndExamProfileEvenBeforeGrading()
     {
         var profile = GradingProfile.BeruflichesGymnasium();

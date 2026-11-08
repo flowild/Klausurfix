@@ -230,6 +230,16 @@ public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Progra
         Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync(url,
             new[] { entry with { TaskPoints = new() { [1] = 8m } } })).StatusCode);
         Assert.Equal(8m, db.GetExamById(exam.Id)!.StudentEntries[0].TaskPoints[1]);
+        var expressionEntry = entry with { TaskPoints = new() { [1] = 8m }, TaskPointExpressions = new() { [1] = "3+5" } };
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync(url, new[] { expressionEntry })).StatusCode);
+        Assert.Equal("3+5", db.GetExamById(exam.Id)!.StudentEntries[0].TaskPointExpressions[1]);
+        foreach (var expression in new[] { "3+4", "3+-5", "3+", "3.0+5", "4+7" })
+            Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsJsonAsync(url,
+                new[] { expressionEntry with { TaskPointExpressions = new() { [1] = expression } } })).StatusCode);
+        var backup = _factory.Services.GetRequiredService<Klausurfix.Infrastructure.Backup.BackupService>();
+        var bytes = backup.CreateBackupBytes(recovery);
+        backup.RestoreBackup(bytes, recovery);
+        Assert.Equal("3+5", db.GetExamById(exam.Id)!.StudentEntries[0].TaskPointExpressions[1]);
     }
 
     private readonly WebApplicationFactory<Program> _factory;

@@ -355,7 +355,7 @@
 
       <!-- Quick hint for touch/keyboard -->
       <div style="font-size: 0.85rem; color: var(--gray-500); margin-bottom: 0.75rem; display: flex; justify-content: space-between;">
-        <span id="matrixKeyboardHint">Tipp: Nutzen Sie Tab / Enter zur schnellen Navigation zwischen den Feldern. Deutsches Dezimalkomma wird unterstützt.</span>
+        <span id="matrixKeyboardHint">Tipp: Bei Aufgabenpunkten können Sie auch addieren, z. B. 5+4+5+10. Außerhalb des Feldes erscheint die Summe. Mit Tab / Enter wechseln Sie zwischen den Feldern.</span>
         <span id="matrixArchivedHint" hidden>Zum Bearbeiten die Klausur im Archiv wiederherstellen.</span>
         <span id="matrixStudentCount">0 Schüler</span>
       </div>
@@ -405,6 +405,11 @@
           <h2 style="font-size: 2.4rem; font-weight: 800; color: var(--warning);" id="auswertungExcludedCount">0</h2>
           <span style="font-size: 0.85rem; color: var(--gray-500);">Im Schnitt nicht als 0 gewertet</span>
         </div>
+      </div>
+
+      <div class="card" aria-live="polite">
+        <h2 class="card-title">Genehmigung der Klausur</h2>
+        <p id="auswertungApprovalNotice">Auswertung wird geladen …</p>
       </div>
 
       <!-- Visual Notenspiegel Chart & Distribution Table -->

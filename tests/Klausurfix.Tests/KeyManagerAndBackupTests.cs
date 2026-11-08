@@ -11,6 +11,35 @@ using Microsoft.Data.Sqlite;
 public class KeyManagerAndBackupTests : IDisposable
 {
     [Fact]
+    public void StudentOrderIsSavedAndExamSnapshotSurvivesReorderingAndBackup()
+    {
+        var recovery = KeyManager.GenerateRecoveryKey();
+        _keyManager.Setup("123456", recovery);
+        _dbContext.InitializeDatabase();
+        var school = new Schulform { Name = "Test", Profile = GradingProfile.FachschuleSozialwesen() };
+        _dbContext.SaveSchulform(school);
+        var cls = new ClassGroup { Name = "Test", SchulformId = school.Id, SchulformName = school.Name };
+        _dbContext.SaveClass(cls);
+        var first = new Student { ClassId = cls.Id, FirstName = "A", OrderIndex = 0 };
+        var second = new Student { ClassId = cls.Id, FirstName = "B", OrderIndex = 1 };
+        _dbContext.SaveStudent(first);
+        _dbContext.SaveStudent(second);
+        Assert.True(_dbContext.ReorderStudents(cls.Id, [second.Id, first.Id]));
+        Assert.False(_dbContext.ReorderStudents(cls.Id, [second.Id, second.Id]));
+        Assert.Equal(new[] { second.Id, first.Id }, _dbContext.GetStudentsByClass(cls.Id).Select(s => s.Id));
+        var exam = new Exam { ClassId = cls.Id, ClassName = cls.Name, SchulformId = school.Id,
+            SchulformName = school.Name, Title = "Test", Tasks = new() { new(1, "Aufgabe", 100m) },
+            GradingProfileSnapshot = school.Profile, StudentEntries = _dbContext.GetStudentsByClass(cls.Id)
+                .Select(s => new ExamStudentEntry { StudentId = s.Id, StudentName = s.FullName }).ToList() };
+        _dbContext.SaveExam(exam);
+        Assert.True(_dbContext.ReorderStudents(cls.Id, [first.Id, second.Id]));
+        var backup = _backupService.CreateBackupBytes(recovery);
+        _backupService.RestoreBackup(backup, recovery);
+        Assert.Equal(new[] { first.Id, second.Id }, _dbContext.GetStudentsByClass(cls.Id).Select(s => s.Id));
+        Assert.Equal(new[] { second.Id, first.Id }, _dbContext.GetExamById(exam.Id)!.StudentEntries.Select(s => s.StudentId));
+    }
+
+    [Fact]
     public void UpdateWorkflowVerifiesRealBackupAndActivatesVersion()
     {
         var recovery = KeyManager.GenerateRecoveryKey();

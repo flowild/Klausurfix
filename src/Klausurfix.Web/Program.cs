@@ -520,9 +520,18 @@ app.MapGet("/api/klassen/{id}/students", (DatabaseContext db, string id, bool? i
 
 app.MapPost("/api/klassen/{id}/students", (string id, Student student, DatabaseContext db) =>
 {
-    var st = student with { ClassId = id };
+    var existing = db.GetStudentsByClass(id, includeArchived: true);
+    var current = existing.FirstOrDefault(s => s.Id == student.Id);
+    var st = student with { ClassId = id, OrderIndex = current?.OrderIndex ?? (existing.Count == 0 ? 0 : existing.Max(s => s.OrderIndex) + 1) };
     db.SaveStudent(st);
     return Results.Ok(st);
+});
+
+app.MapPut("/api/klassen/{id}/students/reihenfolge", (string id, StudentOrderRequest request, DatabaseContext db) =>
+{
+    if (request.StudentIds == null || !db.ReorderStudents(id, request.StudentIds))
+        return Results.BadRequest(new { error = "Die Schülerliste hat sich geändert. Bitte laden Sie sie erneut." });
+    return Results.Ok(new { success = true });
 });
 
 app.MapDelete("/api/klassen/{classId}/students/{studentId}", (DatabaseContext db, string classId, string studentId) =>
@@ -683,10 +692,14 @@ app.MapPost("/api/klausuren/{id}/entries", (string id, List<ExamStudentEntry> en
         (!exam.StudentEntries.Single(original => original.StudentId == e.StudentId).TaskPoints.TryGetValue(p.Key, out var previous) || previous != p.Value))))
         return Results.BadRequest(new { error = "Erreichte Aufgabenpunkte müssen ganze Zahlen sein." });
 
+    if (entries.Any(e => e.TaskPointExpressions == null || e.TaskPointExpressions.Any(p =>
+        !TaskPointExpression.TrySum(p.Value, out var sum) || !e.TaskPoints.TryGetValue(p.Key, out var points) || points != sum)))
+        return Results.BadRequest(new { error = "Die Addition der Aufgabenpunkte ist ungültig oder stimmt nicht mit der Summe überein." });
+
     var updatedEntries = exam.StudentEntries.Select(original =>
     {
         var edited = entries.Single(e => e.StudentId == original.StudentId);
-        return original with { TaskPoints = edited.TaskPoints, WordCount = edited.WordCount,
+        return original with { TaskPoints = edited.TaskPoints, TaskPointExpressions = edited.TaskPointExpressions, WordCount = edited.WordCount,
             ErrorCount = edited.ErrorCount, Status = edited.Status, Note = edited.Note };
     }).ToList();
     var updatedExam = exam with { StudentEntries = updatedEntries, UpdatedAt = DateTimeOffset.UtcNow };
@@ -959,6 +972,7 @@ app.Run();
 
 #region Request DTOs
 
+public record StudentOrderRequest(List<string>? StudentIds);
 public record InitRequest(string Pin, string RecoveryKey, int? InactivityTimeoutMinutes);
 public record PinUnlockRequest(string Pin);
 public record RecoveryUnlockRequest(string RecoveryKey);

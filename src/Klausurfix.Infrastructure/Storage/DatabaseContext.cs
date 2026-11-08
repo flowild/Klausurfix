@@ -17,9 +17,9 @@ public class DatabaseContext
 {
     private readonly KeyManager _keyManager;
     private readonly string? _snapshotConnectionString;
-    private record StoredEntry(Dictionary<int, decimal?> TaskPoints, int? WordCount, int? ErrorCount, StudentExamStatus Status);
+    private record StoredEntry(Dictionary<int, decimal?> TaskPoints, int? WordCount, int? ErrorCount, StudentExamStatus Status, Dictionary<int, string>? TaskPointExpressions = null);
     private static string ProtectEntry(ExamStudentEntry entry, byte[] key, string examId) => Protect(
-        JsonSerializer.Serialize(new StoredEntry(entry.TaskPoints, entry.WordCount, entry.ErrorCount, entry.Status)),
+        JsonSerializer.Serialize(new StoredEntry(entry.TaskPoints, entry.WordCount, entry.ErrorCount, entry.Status, entry.TaskPointExpressions)),
         key, "exam_entries", "task_points_enc", examId, entry.StudentId);
 
     public DatabaseContext(KeyManager keyManager)
@@ -150,7 +150,7 @@ public class DatabaseContext
     // point rolls back both the deletion and all inserted rows.
     public void ReplaceFromBackup(BackupPayload payload, bool validateProfiles = true)
     {
-        if (payload.Version is not (1 or 2 or 3 or 4) || payload.Schulformen == null || payload.Classes == null ||
+        if (payload.Version is not (1 or 2 or 3 or 4 or 5) || payload.Schulformen == null || payload.Classes == null ||
             payload.Students == null || payload.Exams == null)
             throw new InvalidOperationException("Ungültige Sicherungsdaten.");
         if (validateProfiles) foreach (var sf in payload.Schulformen) sf.Profile.Validate();
@@ -473,8 +473,8 @@ ON CONFLICT(id) DO UPDATE SET
         using var conn = CreateConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = includeArchived
-            ? "SELECT id, class_id, first_name_enc, last_name_enc, order_index, is_archived FROM students WHERE class_id = $classId ORDER BY order_index ASC;"
-            : "SELECT id, class_id, first_name_enc, last_name_enc, order_index, is_archived FROM students WHERE class_id = $classId AND is_archived = 0 ORDER BY order_index ASC;";
+            ? "SELECT id, class_id, first_name_enc, last_name_enc, order_index, is_archived FROM students WHERE class_id = $classId ORDER BY order_index ASC, rowid ASC;"
+            : "SELECT id, class_id, first_name_enc, last_name_enc, order_index, is_archived FROM students WHERE class_id = $classId AND is_archived = 0 ORDER BY order_index ASC, rowid ASC;";
         cmd.Parameters.AddWithValue("$classId", classId);
 
         using var reader = cmd.ExecuteReader();
@@ -502,6 +502,33 @@ ON CONFLICT(id) DO UPDATE SET
         }
 
         return list;
+    }
+
+    public bool ReorderStudents(string classId, IReadOnlyList<string> studentIds)
+    {
+        using var conn = CreateConnection();
+        using var transaction = conn.BeginTransaction(deferred: false);
+        using var query = conn.CreateCommand();
+        query.Transaction = transaction;
+        query.CommandText = "SELECT id FROM students WHERE class_id=$classId AND is_archived=0";
+        query.Parameters.AddWithValue("$classId", classId);
+        var existing = new HashSet<string>();
+        using (var reader = query.ExecuteReader())
+            while (reader.Read()) existing.Add(reader.GetString(0));
+        if (studentIds.Count != existing.Count || studentIds.Any(id => id == null || !existing.Remove(id)) || existing.Count != 0)
+            return false;
+        for (var i = 0; i < studentIds.Count; i++)
+        {
+            using var update = conn.CreateCommand();
+            update.Transaction = transaction;
+            update.CommandText = "UPDATE students SET order_index=$order WHERE class_id=$classId AND id=$id AND is_archived=0";
+            update.Parameters.AddWithValue("$order", i);
+            update.Parameters.AddWithValue("$classId", classId);
+            update.Parameters.AddWithValue("$id", studentIds[i]);
+            update.ExecuteNonQuery();
+        }
+        transaction.Commit();
+        return true;
     }
 
     public void SaveStudent(Student student)
@@ -653,7 +680,7 @@ ON CONFLICT(id) DO UPDATE SET
         // Load student entries
         var entries = new List<ExamStudentEntry>();
         using var entriesCmd = conn.CreateCommand();
-        entriesCmd.CommandText = "SELECT student_id, student_name_enc, status, task_points_enc, word_count, error_count, note_enc FROM exam_entries WHERE exam_id = $examId;";
+        entriesCmd.CommandText = "SELECT student_id, student_name_enc, status, task_points_enc, word_count, error_count, note_enc FROM exam_entries WHERE exam_id = $examId ORDER BY rowid;";
         entriesCmd.Parameters.AddWithValue("$examId", id);
 
         using var entriesReader = entriesCmd.ExecuteReader();
@@ -682,6 +709,7 @@ ON CONFLICT(id) DO UPDATE SET
                 StudentName = sName,
                 Status = status,
                 TaskPoints = pts,
+                TaskPointExpressions = stored.TaskPointExpressions ?? new(),
                 WordCount = words,
                 ErrorCount = errors,
                 Note = note
