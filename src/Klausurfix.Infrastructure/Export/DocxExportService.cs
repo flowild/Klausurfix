@@ -53,7 +53,7 @@ public class DocxExportService
                 new ParagraphProperties(new SpacingBetweenLines { After = "240" }),
                 new Run(
                     new RunProperties(new Bold(), new Color { Val = "126763" }, new FontSize { Val = "22" }),
-                    new Text($"Klassendurchschnitt: {avgStr} {summary.Unit}   |   Gewertet: {summary.GradedCount} von {summary.TotalStudents} Schülern (Ausgeschlossen: {summary.ExcludedCount})")
+                    new Text($"Klassendurchschnitt: {avgStr} {summary.Unit}   |   Gewertet: {summary.GradedCount} von {summary.TotalStudents} Schülern (Nicht gewertet: {summary.TotalStudents - summary.GradedCount})")
                 )
             ));
 
@@ -142,22 +142,6 @@ public class DocxExportService
 
             body.AppendChild(table);
 
-            body.AppendChild(new Paragraph(new ParagraphProperties(new SpacingBetweenLines { Before = "300", After = "120" }),
-                new Run(new RunProperties(new Bold(), new Color { Val = "124E4C" }, new FontSize { Val = "24" }), new Text("Fehlerschwellen"))));
-            body.AppendChild(new Paragraph(new Run(new Text("Ab der angegebenen Fehlerzahl gilt der jeweilige Abzug. Prozentangaben beziehen sich auf die maximale Gesamtpunktzahl."))));
-            var thresholdsTable = new Table(new TableProperties(new TableWidth { Type = TableWidthUnitValues.Pct, Width = "5000" }),
-                new TableGrid(new GridColumn(), new GridColumn(), new GridColumn(), new GridColumn()));
-            thresholdsTable.AppendChild(new TableRow(new TableRowProperties(new TableHeader()),
-                CreateCell("#", isBold: true, isHeader: true), CreateCell("Schüler/in", isBold: true, isHeader: true),
-                CreateCell("Wörter", isBold: true, isHeader: true), CreateCell("Fehlerzahl: Abzug", isBold: true, isHeader: true)));
-            for (var i = 0; i < exam.StudentEntries.Count; i++)
-            {
-                var entry = exam.StudentEntries[i];
-                thresholdsTable.AppendChild(new TableRow(CreateCell((i + 1).ToString()), CreateCell(entry.StudentName),
-                    CreateCell(entry.WordCount?.ToString() ?? "–"), CreateCell(ReportFormatting.ErrorThresholds(entry.WordCount, exam.GradingProfileSnapshot))));
-            }
-            body.AppendChild(thresholdsTable);
-
             // Spacing
             body.AppendChild(new Paragraph(new ParagraphProperties(new SpacingBetweenLines { Before = "300", After = "120" }),
                 new Run(new RunProperties(new Bold(), new Color { Val = "124E4C" }, new FontSize { Val = "24" }), new Text("Notenspiegel"))
@@ -189,17 +173,6 @@ public class DocxExportService
             nspTable.AppendChild(nspRow);
 
             body.AppendChild(nspTable);
-
-            body.AppendChild(new Paragraph(new ParagraphProperties(new SpacingBetweenLines { Before = "240", After = "100" }),
-                new Run(new RunProperties(new Bold(), new Color { Val = "124E4C" }, new FontSize { Val = "22" }), new Text("Angewandte Bewertungsregeln"))));
-            var profile = exam.GradingProfileSnapshot;
-            var unit = ReportFormatting.DeductionUnit(profile.DeductionUnit);
-            var tiers = profile.DeductionTiers.Count == 0 ? "Keine Abzüge" : string.Join("; ", profile.DeductionTiers.Select(t =>
-                $"ab FQ {t.Threshold.ToString("G", deCulture)}: -{t.Deduction.ToString("G", deCulture)} {unit}"));
-            body.AppendChild(new Paragraph(new Run(new Text($"Notensystem: {(profile.System == GradingSystem.Schulnoten ? "Schulnoten (1–6)" : "Notenpunkte (0–15)")} · Abzugseinheit: {unit}"))));
-            body.AppendChild(new Paragraph(new Run(new Text("Fehlerquotient = (Rechtschreibfehler × 100) / Wortanzahl"))));
-            body.AppendChild(new Paragraph(new Run(new Text($"Abzugsstufen: {tiers}"))));
-            body.AppendChild(new Paragraph(new Run(new Text($"Nicht gewertet: {summary.ExcludedCount}"))));
 
             // Append section properties at the end of body
             body.AppendChild(sectionProps);

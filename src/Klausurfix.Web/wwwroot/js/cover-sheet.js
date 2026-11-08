@@ -29,6 +29,8 @@ export function createCoverSheetEditor({ api, notify, beforeOpen }) {
       subject: form.elements.subject.value.trim(), instructions: form.elements.instructions.value.trim(),
       useTemplateLogo: form.elements.useTemplateLogo.checked, showGradeKey: form.elements.showGradeKey.checked,
       showDeductionRules: form.elements.showDeductionRules.checked, showWordCount: form.elements.showWordCount.checked,
+      showErrorCount: form.elements.showErrorCount.checked, showErrorQuotient: form.elements.showErrorQuotient.checked,
+      showGradeDeduction: form.elements.showGradeDeduction.checked,
       deductionNotice: form.elements.deductionNotice.value.trim() === current.model.defaultDeductionNotice
         ? null : form.elements.deductionNotice.value.trim(),
       saveDeductionNotice: true,
@@ -99,6 +101,7 @@ export function createCoverSheetEditor({ api, notify, beforeOpen }) {
         <p class="cover-center cover-rules" data-notice-preview ${s.showDeductionRules && m.deductionNotice ? "" : "hidden"}>${escape(m.deductionNotice)}</p>
         ${s.instructions ? `<p class="cover-text cover-center">${escape(s.instructions)}</p>` : ""}
         ${s.showWordCount ? '<p class="cover-center"><strong>Zählen Sie bitte am Ende der Klausur Ihre geschriebenen Wörter!</strong></p><p class="cover-center"><strong>Anzahl Wörter: ____________________</strong></p>' : ""}
+        ${m.additionalFields.length ? `<p class="cover-additional-fields"><strong>${m.additionalFields.map(escape).join("    ")}</strong></p>` : ""}
         ${m.tasks.map(t => `<section class="cover-task-preview"><strong>${escape(t.title)}</strong>
           <p class="cover-text">${t.text ? t.textParts.map(p => p.underlined ? `<u>${escape(p.text)}</u>` : escape(p.text)).join("") : "Aufgabenstellung: ______________________________________________"}</p><p class="cover-points">${escape(t.shortPoints)}</p></section>`).join("")}
         <section class="cover-paper-footer">${s.operators.map(o => `<p><strong>Operator „${escape(o.name)}“:</strong><br>${escape(o.definition)}</p>`).join("")}</section>
@@ -163,7 +166,8 @@ export function createCoverSheetEditor({ api, notify, beforeOpen }) {
             <p class="cover-help">Der Klausurtitel wird automatisch übernommen.</p></div>
           <fieldset class="cover-options"><legend>Inhalt des Deckblatts</legend>
             ${[["useTemplateLogo", "Logo der Saalburgschule aus der Vorlage"], ["showGradeKey", "Notenschlüssel der Klausur"],
-              ["showDeductionRules", "Hinweis zum Fehlerabzug"], ["showWordCount", "Hinweis und Feld zur Wortanzahl"]]
+              ["showDeductionRules", "Hinweis zum Fehlerabzug"], ["showWordCount", "Hinweis und Feld zur Wortanzahl"], ["showErrorCount", "Feld für Anzahl Fehler"],
+              ["showErrorQuotient", "Feld für Fehlerquotient"], ["showGradeDeduction", "Feld für Abzug"]]
               .map(([key, label]) => `<label><input type="checkbox" name="${key}" ${s[key] ? "checked" : ""}> ${label}</label>`).join("")}
           </fieldset>
           <div class="form-group"><label class="form-label" for="coverDeductionNotice">Hinweis zum Fehlerabzug</label>

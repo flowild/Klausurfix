@@ -182,6 +182,11 @@ export const api = {
       body: JSON.stringify(entries)
     });
   },
+  saveExpectationHorizons(id, horizons) {
+    return this.request(`/api/klausuren/${encodeURIComponent(id)}/erwartungshorizonte`, {
+      method: "PUT", body: JSON.stringify(horizons)
+    });
+  },
   previewExamEntry(id, entry) {
     return this.request(`/api/klausuren/${id}/preview-entry`, {
       method: "POST", body: JSON.stringify(entry)

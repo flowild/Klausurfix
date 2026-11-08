@@ -103,7 +103,7 @@ public class BackupService
     {
         var payload = new BackupPayload
         {
-            Version = 5, // Includes task-point expressions.
+            Version = 6, // Includes per-task expectation horizons.
             CreatedAt = DateTimeOffset.UtcNow,
             Schulformen = db.GetSchulformen(includeArchived: true),
             Classes = db.GetClasses(includeArchived: true)
@@ -267,7 +267,7 @@ public class BackupService
         {
             var payload = JsonSerializer.Deserialize<BackupPayload>(decryptedBytes)
                 ?? throw new InvalidOperationException("Sicherungsdaten konnten nicht gelesen werden.");
-            if (payload.Version is not (1 or 2 or 3 or 4 or 5) || payload.Schulformen == null || payload.Classes == null ||
+            if (payload.Version is not (1 or 2 or 3 or 4 or 5 or 6) || payload.Schulformen == null || payload.Classes == null ||
                 payload.Students == null || payload.Exams == null)
                 throw new InvalidOperationException("Ungültige Sicherungsdaten.");
             foreach (var school in payload.Schulformen) school.Profile.Validate();

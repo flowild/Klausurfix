@@ -88,6 +88,8 @@ public static class CoverSheetExports
                     col.Item().AlignCenter().Text(CoverSheetDocument.WordCountHint).FontSize(10).Bold();
                     col.Item().AlignCenter().Text(CoverSheetDocument.WordCountField).FontSize(10).Bold();
                 }
+                if (model.AdditionalFields.Count > 0)
+                    col.Item().AlignCenter().Text(string.Join("    ", model.AdditionalFields)).FontSize(9).Bold();
                 foreach (var task in model.Tasks)
                 {
                     col.Item().EnsureSpace(48).PaddingTop(16).Text(task.Title).Bold().Italic();
@@ -204,6 +206,8 @@ public static class CoverSheetExports
                 body.Append(Para(model.DeductionNotice, bold: true, size: 20, alignment: JustificationValues.Center));
             if (model.Settings.Instructions.Length > 0) body.Append(Para(model.Settings.Instructions, alignment: JustificationValues.Center));
             if (model.Settings.ShowWordCount) body.Append(Para(CoverSheetDocument.WordCountHint, bold: true, size: 20, alignment: JustificationValues.Center), Para(CoverSheetDocument.WordCountField, bold: true, size: 20, alignment: JustificationValues.Center));
+            if (model.AdditionalFields.Count > 0)
+                body.Append(Para(string.Join("    ", model.AdditionalFields), bold: true, size: 18, alignment: JustificationValues.Center));
             foreach (var task in model.Tasks)
             {
                 var heading = Para(task.Title, bold: true, italic: true, size: 22, before: "250", alignment: JustificationValues.Left);

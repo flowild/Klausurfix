@@ -386,6 +386,27 @@ public class KeyManagerAndBackupTests : IDisposable
     }
 
     [Fact]
+    public void ExpectationHorizons_AreEncryptedAndSurviveBackupRestore()
+    {
+        var recovery = KeyManager.GenerateRecoveryKey();
+        _keyManager.Setup("123456", recovery);
+        _dbContext.InitializeDatabase();
+        var exam = new Exam { Tasks = new() { new TaskDefinition(1, "Aufgabe 1", 10) { ExpectationHorizon = "Synthetischer Erwartungstext" } } };
+        _dbContext.SaveExam(exam);
+        using (var conn = new SqliteConnection($"Data Source={AppPaths.DatabaseFile}"))
+        {
+            conn.Open();
+            using var command = conn.CreateCommand();
+            command.CommandText = "SELECT tasks_json FROM exams WHERE id=$id";
+            command.Parameters.AddWithValue("$id", exam.Id);
+            Assert.DoesNotContain("Synthetischer Erwartungstext", (string)command.ExecuteScalar()!);
+        }
+        var backup = _backupService.CreateBackupBytes(recovery);
+        _dbContext.DeleteExam(exam.Id);
+        _backupService.RestoreBackup(backup, recovery);
+        Assert.Equal("Synthetischer Erwartungstext", _dbContext.GetExamById(exam.Id)!.Tasks[0].ExpectationHorizon);
+    }
+    [Fact]
     public void CoverSheetMigrationLegacyRestoreTamperDetectionAndDeletionPreserveExamData()
     {
         _keyManager.Setup("123456", KeyManager.GenerateRecoveryKey());

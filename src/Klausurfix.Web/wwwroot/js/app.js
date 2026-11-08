@@ -360,6 +360,8 @@ function showStoppedScreen() {
   state.exams = [];
   state.examListView = "dashboard";
   document.getElementById("matrixTableContainer").replaceChildren();
+  document.getElementById("expectationHorizonsFields").replaceChildren();
+  document.getElementById("expectationHorizons").hidden = true;
   document.getElementById("dashboardExamsList").replaceChildren();
   document.getElementById("archiveExamsList").replaceChildren();
   switchView("stopped");
@@ -400,7 +402,7 @@ window.addEventListener("klausurfix:locked", () => {
   state.classes = [];
   state.exams = [];
   state.examListView = "dashboard";
-  for (const id of ["matrixTableContainer", "backupsListTable", "dashboardExamsList", "archiveExamsList"]) {
+  for (const id of ["matrixTableContainer", "expectationHorizonsFields", "backupsListTable", "dashboardExamsList", "archiveExamsList"]) {
     document.getElementById(id).replaceChildren();
   }
   switchView("unlock");
@@ -1156,6 +1158,9 @@ async function openExamMatrix(examId, fromHistory = false) {
   state.activeExam = null;
   state.activeExamEntries = [];
   document.getElementById("matrixTableContainer").replaceChildren();
+  document.getElementById("expectationHorizonsFields").replaceChildren();
+  document.getElementById("expectationHorizons").hidden = true;
+  state.expectationsDirty = false;
   document.getElementById("matrixExamTitle").textContent = "Klausur wird geladen …";
   document.getElementById("matrixExamMeta").textContent = "";
   document.getElementById("matrixArchivedBadge").hidden = true;
@@ -1186,6 +1191,7 @@ async function openExamMatrix(examId, fromHistory = false) {
     document.getElementById("matrixStudentCount").textContent = `${state.activeExamEntries.length} Schüler`;
 
     renderMatrixTable(exam, state.activeExamEntries);
+    renderExpectationHorizons(exam);
   } catch (err) {
     if (state.currentExamId === examId && state.currentView === "eingabetabelle")
       document.getElementById("matrixExamTitle").textContent = "Klausur konnte nicht geladen werden";
@@ -1193,6 +1199,22 @@ async function openExamMatrix(examId, fromHistory = false) {
   }
 }
 
+function renderExpectationHorizons(exam) {
+  const section = document.getElementById("expectationHorizons");
+  const fields = document.getElementById("expectationHorizonsFields");
+  fields.innerHTML = exam.tasks.map(task => `
+    <div class="form-group">
+      <label class="form-label" for="expectation-${task.taskNumber}">Aufgabe ${task.taskNumber}: ${escapeHtml(task.name)}</label>
+      <textarea class="form-control" id="expectation-${task.taskNumber}" data-expectation-task="${task.taskNumber}"
+        rows="4" maxlength="10000" ${exam.isArchived ? 'readonly aria-readonly="true"' : ""}>${escapeHtml(task.expectationHorizon || "")}</textarea>
+    </div>`).join("");
+  section.hidden = false;
+  if (!exam.isArchived) fields.querySelectorAll("textarea").forEach(input => input.addEventListener("input", () => {
+    exam.tasks.find(task => task.taskNumber === Number(input.dataset.expectationTask)).expectationHorizon = input.value;
+    state.expectationsDirty = true;
+    triggerAutoSave();
+  }));
+}
 function renderMatrixTable(exam, entries) {
   const container = document.getElementById("matrixTableContainer");
   const totalMax = exam.totalMaxPoints;
@@ -1434,6 +1456,12 @@ function focusNextMatrixCell(currentInput, currentTr) {
 }
 
 function triggerAutoSave() {
+  if (document.querySelector('#scoreMatrix [aria-invalid="true"]')) {
+    state.saveRevision = (state.saveRevision || 0) + 1;
+    state.saveFailed = true;
+    document.getElementById("saveBadge").textContent = "Eingabe prüfen";
+    return;
+  }
   const badge = document.getElementById("saveBadge");
   badge.className = "save-badge saving";
   badge.innerHTML = `<span style="width: 8px; height: 8px; border-radius: 50%; background-color: currentColor;"></span> Speichert...`;
@@ -1442,16 +1470,21 @@ function triggerAutoSave() {
   clearTimeout(state.saveTimeout);
   const examId = state.currentExamId;
   const entries = structuredClone(state.activeExamEntries);
+  const horizons = state.expectationsDirty ? state.activeExam.tasks.map(task => ({ taskNumber: task.taskNumber, text: task.expectationHorizon || "" })) : null;
   const revision = state.saveRevision = (state.saveRevision || 0) + 1;
   state.pendingExamId = examId;
   const save = () => {
     if (state.saveAction === save) state.saveAction = null;
     clearTimeout(state.saveTimeout);
     state.isSaving = true;
-    state.pendingSave = (state.pendingSave || Promise.resolve()).catch(() => {}).then(() => api.saveExamEntries(examId, entries));
+    state.pendingSave = (state.pendingSave || Promise.resolve()).catch(() => {}).then(async () => {
+      await api.saveExamEntries(examId, entries);
+      if (horizons) await api.saveExpectationHorizons(examId, horizons);
+    });
     state.pendingSave.then(() => {
       if (revision !== state.saveRevision) return;
       state.isSaving = false;
+      if (horizons) state.expectationsDirty = false;
       state.saveFailed = false;
       if (examId !== state.currentExamId || state.saveAction) return;
       badge.className = "save-badge saved";

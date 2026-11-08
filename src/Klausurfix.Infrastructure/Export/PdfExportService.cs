@@ -148,33 +148,6 @@ public class PdfExportService
                         }
                     });
 
-                    col.Item().PaddingTop(18).Text("Fehlerschwellen").Bold().FontSize(13).FontColor("#124E4C");
-                    col.Item().PaddingTop(2).Text("Ab der angegebenen Fehlerzahl gilt der jeweilige Abzug. Prozentangaben beziehen sich auf die maximale Gesamtpunktzahl.").FontSize(8);
-                    col.Item().PaddingTop(6).Table(thresholds =>
-                    {
-                        thresholds.ColumnsDefinition(columns =>
-                        {
-                            columns.ConstantColumn(25);
-                            columns.RelativeColumn(3);
-                            columns.RelativeColumn(1);
-                            columns.RelativeColumn(6);
-                        });
-                        thresholds.Header(header =>
-                        {
-                            foreach (var label in new[] { "#", "Schüler/in", "Wörter", "Fehlerzahl: Abzug" })
-                                header.Cell().Background(Colors.Grey.Lighten3).Padding(4).Text(label).Bold();
-                        });
-                        for (var i = 0; i < exam.StudentEntries.Count; i++)
-                        {
-                            var entry = exam.StudentEntries[i];
-                            var bg = i % 2 == 1 ? "#F3F8F7" : "#FFFFFF";
-                            thresholds.Cell().Background(bg).Padding(4).Text((i + 1).ToString());
-                            thresholds.Cell().Background(bg).Padding(4).Text(entry.StudentName);
-                            thresholds.Cell().Background(bg).Padding(4).Text(entry.WordCount?.ToString() ?? "–");
-                            thresholds.Cell().Background(bg).Padding(4).Text(ReportFormatting.ErrorThresholds(entry.WordCount, exam.GradingProfileSnapshot));
-                        }
-                    });
-
                     // Summary & Notenspiegel section
                     col.Item().PaddingTop(18).Column(summaryCol =>
                     {
@@ -194,19 +167,7 @@ public class PdfExportService
                             foreach (var count in summary.GradeDistribution.Values)
                                 nspTable.Cell().Background("#F3F8F7").Padding(5).AlignCenter().Text(count.ToString()).Bold();
                         });
-                        summaryCol.Item().PaddingTop(14).BorderTop(1).BorderColor("#D5E5E2").PaddingTop(9).Column(ruleCol =>
-                        {
-                            ruleCol.Item().Text("Angewandte Bewertungsregeln").Bold().FontSize(10).FontColor("#124E4C");
-                            ruleCol.Item().PaddingTop(4).Text($"• Notensystem: {(exam.GradingProfileSnapshot.System == GradingSystem.Schulnoten ? "Schulnoten (1-6)" : "Notenpunkte (0-15)")}");
-                            ruleCol.Item().Text($"• Abzugseinheit: {ReportFormatting.DeductionUnit(exam.GradingProfileSnapshot.DeductionUnit)}");
-                            ruleCol.Item().Text($"• Fehlerquotient-Formel: (Rechtschreibfehler × 100) / Wortanzahl");
-                            ruleCol.Item().Text($"• Abzugsstufen:");
-                            foreach (var tier in exam.GradingProfileSnapshot.DeductionTiers)
-                            {
-                                ruleCol.Item().PaddingLeft(10).Text($"- ab FQ {tier.Threshold.ToString("G", deCulture)}: -{tier.Deduction.ToString("G", deCulture)} {ReportFormatting.DeductionUnit(exam.GradingProfileSnapshot.DeductionUnit)}");
-                            }
-                            ruleCol.Item().PaddingTop(5).Text($"• Ausgeschlossene Schüler (Krank / Nicht gewertet): {summary.ExcludedCount}");
-                        });
+                        summaryCol.Item().PaddingTop(8).Text($"Nicht gewertet: {summary.TotalStudents - summary.GradedCount}");
                     });
                 });
 

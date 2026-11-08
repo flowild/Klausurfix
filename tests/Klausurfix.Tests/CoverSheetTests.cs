@@ -205,6 +205,31 @@ public class CoverSheetTests
         }));
     }
 
+    [Theory]
+    [InlineData(DeductionUnit.Notenpunkte, "Abzug (Notenpunkte)")]
+    [InlineData(DeductionUnit.Schulnoten, "Abzug (Schulnoten)")]
+    [InlineData(DeductionUnit.ProzentDerGesamtpunkte, "Abzug (% der Gesamtpunkte)")]
+    public void OptionalFields_AppearInModelAndExportsWithProfileUnit(DeductionUnit unit, string label)
+    {
+        var sample = Sample();
+        var exam = sample with
+        {
+            GradingProfileSnapshot = sample.GradingProfileSnapshot with { DeductionUnit = unit },
+            CoverSheet = sample.CoverSheet! with { ShowErrorCount = true, ShowErrorQuotient = true, ShowGradeDeduction = true }
+        };
+        var model = CoverSheetDocument.Create(exam);
+        Assert.Equal(3, model.AdditionalFields.Count);
+        Assert.Contains(model.AdditionalFields, field => field.StartsWith(label));
+        using var stream = new MemoryStream(new DocxExportService().GenerateCoverSheet(exam));
+        using var doc = WordprocessingDocument.Open(stream, false);
+        AssertValid(doc);
+        Assert.All(model.AdditionalFields, field => Assert.EndsWith("______", field));
+        Assert.Contains(string.Join("    ", model.AdditionalFields), doc.MainDocumentPart!.Document!.Body!.InnerText);
+        Assert.NotEmpty(new PdfExportService().GenerateCoverSheet(exam));
+        var hidden = CoverSheetDocument.Create(exam with { CoverSheet = exam.CoverSheet! with
+            { ShowErrorCount = false, ShowErrorQuotient = false, ShowGradeDeduction = false } });
+        Assert.Empty(hidden.AdditionalFields);
+    }
     [Fact]
     public void Docx_OptionsCanOmitLogoGradeKeyRulesWordCountAndOperators()
     {

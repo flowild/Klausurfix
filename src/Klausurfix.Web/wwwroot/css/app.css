@@ -831,6 +831,7 @@ body {
 .cover-grade-key td, .cover-grade-key th { border: 1px solid #000; padding: 3px; text-align: center; color: #202020; background: #fff; }
 .cover-grade-key tr:first-child td, .cover-grade-key tr:first-child th { background: #d0cece; font-weight: bold; }
 .cover-center { text-align: center; }
+.cover-additional-fields { text-align: center; white-space: pre; font-size: 9pt; }
 .cover-rules { font-weight: bold; }
 .cover-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .cover-task-preview { padding-top: 1rem; text-align: left; }
@@ -855,3 +856,6 @@ body {
   .cover-preview-panel { position: static; max-height: none; padding: .75rem; }
 }
 
+
+.expectation-horizons { margin-top: 1.5rem; }
+.expectation-horizons textarea { resize: vertical; }

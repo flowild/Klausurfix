@@ -377,6 +377,27 @@ public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Progra
     }
 
     [Fact]
+    public async Task ExpectationHorizons_AreSavedPerTaskAndArchivedExamsAreReadOnly()
+    {
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/setup/init", new
+        {
+            pin = "123456", recoveryKey = KeyManager.GenerateRecoveryKey(), inactivityTimeoutMinutes = 15
+        })).StatusCode);
+        var db = _factory.Services.GetRequiredService<DatabaseContext>();
+        var exam = new Exam { Tasks = new() { new(1, "Aufgabe 1", 50), new(2, "Aufgabe 2", 50) } };
+        db.SaveExam(exam);
+        var endpoint = $"/api/klausuren/{exam.Id}/erwartungshorizonte";
+        var values = new[] { new { taskNumber = 1, text = "Erwartung A\nZweite Zeile" }, new { taskNumber = 2, text = "Erwartung B" } };
+        Assert.Equal(HttpStatusCode.OK, (await _client.PutAsJsonAsync(endpoint, values)).StatusCode);
+        Assert.Equal(values[0].text, db.GetExamById(exam.Id)!.Tasks[0].ExpectationHorizon);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PutAsJsonAsync(endpoint, new[] { values[0] })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PutAsJsonAsync(endpoint, new[] { values[0], values[0] })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PutAsJsonAsync(endpoint, new[] { values[0] with { text = new string('x', 10001) }, values[1] })).StatusCode);
+        Assert.True(db.SetExamArchived(exam.Id, true));
+        Assert.Equal(HttpStatusCode.Conflict, (await _client.PutAsJsonAsync(endpoint, values)).StatusCode);
+        Assert.Equal(values[1].text, db.GetExamById(exam.Id)!.Tasks[1].ExpectationHorizon);
+    }
+    [Fact]
     public async Task CoverSheets_AreSavedAsSnapshotsAndExportsRequireAnUnlockedSession()
     {
         Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/setup/init", new
@@ -396,10 +417,12 @@ public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Progra
         Assert.False(template.GetProperty("isSaved").GetBoolean());
         Assert.Null(db.GetExamById(exam.Id)!.CoverSheet);
         var request = new SaveCoverSheetRequest("Politik und Wirtschaft", "Hilfsmittel: Wörterbuch.", true, true, true, true,
-            new() { new(1, "Erklären Sie die Zusammenhänge.") }, new() { "erklaeren", "diskutieren" });
+            new() { new(1, "Erklären Sie die Zusammenhänge.") }, new() { "erklaeren", "diskutieren" },
+            ShowErrorCount: true, ShowErrorQuotient: true, ShowGradeDeduction: true);
         Assert.Equal(HttpStatusCode.OK, (await _client.PutAsJsonAsync(endpoint, request)).StatusCode);
         var saved = db.GetExamById(exam.Id)!;
-        Assert.Equal(request.Tasks[0].Text, saved.CoverSheet!.Tasks[0].Text);
+        Assert.True(saved.CoverSheet!.ShowErrorCount && saved.CoverSheet.ShowErrorQuotient && saved.CoverSheet.ShowGradeDeduction);
+        Assert.Equal(request.Tasks[0].Text, saved.CoverSheet.Tasks[0].Text);
         Assert.Equal(20m, saved.StudentEntries[0].TaskPoints[1]);
         Assert.Equal(3m, saved.GradingProfileSnapshot.DeductionTiers[0].Threshold);
         Assert.Contains("Begründungszusammenhang", saved.CoverSheet.Operators[0].Definition);
@@ -428,6 +451,7 @@ public class WebApiIntegrationTests : IClassFixture<WebApplicationFactory<Progra
         Assert.Equal(HttpStatusCode.OK, (await _client.PutAsJsonAsync(endpoint, request with { Subject = "Neues Fach" })).StatusCode);
         Assert.Equal(12.75m, db.GetExamById(exam.Id)!.CoverSheet!.Tasks[0].EarnedPoints);
         Assert.Equal("Mein Hinweis.", db.GetExamById(exam.Id)!.CoverSheet!.DeductionNotice);
+        Assert.True(db.GetExamById(exam.Id)!.CoverSheet!.ShowErrorCount);
         var invalidPoints = pointsSave with { tasks = new[] { new { taskNumber = 1, text = "", earnedPoints = "25.500001" } } };
         Assert.Equal(HttpStatusCode.BadRequest, (await _client.PutAsJsonAsync(endpoint, invalidPoints)).StatusCode);
         Assert.Equal(12.75m, db.GetExamById(exam.Id)!.CoverSheet!.Tasks[0].EarnedPoints);

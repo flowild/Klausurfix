@@ -18,6 +18,9 @@ public record CoverSheet
     public bool ShowDeductionRules { get; init; } = true;
     public string? DeductionNotice { get; init; }
     public bool ShowWordCount { get; init; } = true;
+    public bool ShowErrorCount { get; init; }
+    public bool ShowErrorQuotient { get; init; }
+    public bool ShowGradeDeduction { get; init; }
     public List<CoverSheetTask> Tasks { get; init; } = new();
     public List<ExamOperator> Operators { get; init; } = new();
     public string OperatorSource { get; init; } = "";

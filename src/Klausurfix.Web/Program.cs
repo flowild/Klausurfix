@@ -578,6 +578,9 @@ app.MapPut("/api/klausuren/{id}/deckblatt", (string id, SaveCoverSheetRequest re
         }).ToList(),
         UseTemplateLogo = req.UseTemplateLogo, ShowGradeKey = req.ShowGradeKey,
         ShowDeductionRules = req.ShowDeductionRules, ShowWordCount = req.ShowWordCount,
+        ShowErrorCount = req.ShowErrorCount ?? exam.CoverSheet?.ShowErrorCount ?? false,
+        ShowErrorQuotient = req.ShowErrorQuotient ?? exam.CoverSheet?.ShowErrorQuotient ?? false,
+        ShowGradeDeduction = req.ShowGradeDeduction ?? exam.CoverSheet?.ShowGradeDeduction ?? false,
         DeductionNotice = req.SaveDeductionNotice ? req.DeductionNotice : exam.CoverSheet?.DeductionNotice,
         Operators = operators, OperatorSource = exam.CoverSheet?.OperatorSource ?? OperatorCatalog.Source
     };
@@ -707,6 +710,18 @@ app.MapPost("/api/klausuren/{id}/entries", (string id, List<ExamStudentEntry> en
     return Results.Ok(new { success = true, savedAt = updatedExam.UpdatedAt });
 });
 
+app.MapPut("/api/klausuren/{id}/erwartungshorizonte", (string id, List<ExpectationHorizonRequest> horizons, DatabaseContext db) =>
+{
+    var exam = db.GetExamById(id);
+    if (exam == null) return Results.NotFound();
+    if (exam.IsArchived) return Results.Conflict(new { error = ArchivedExamReadOnlyException.Description });
+    if (horizons == null || horizons.Count != exam.Tasks.Count || horizons.Any(h => h == null || h.Text == null || h.Text.Length > 10000 ||
+            !exam.Tasks.Any(t => t.TaskNumber == h.TaskNumber)) || horizons.Select(h => h.TaskNumber).Distinct().Count() != horizons.Count)
+        return Results.BadRequest(new { error = "Bitte für jede Aufgabe einen Erwartungshorizont mit höchstens 10.000 Zeichen angeben." });
+    var tasks = exam.Tasks.Select(t => t with { ExpectationHorizon = horizons.Single(h => h.TaskNumber == t.TaskNumber).Text }).ToList();
+    db.SaveExam(exam with { Tasks = tasks, UpdatedAt = DateTimeOffset.UtcNow });
+    return Results.Ok(new { success = true });
+});
 app.MapPost("/api/klausuren/{id}/preview-entry", (string id, ExamStudentEntry entry, DatabaseContext db) =>
 {
     var exam = db.GetExamById(id);
@@ -989,13 +1004,14 @@ public record BackupFileRestoreRequest(string RecoveryKey, string DataBase64);
 public record DangerActionRequest(string Pin);
 public record DeductionPreviewRequest(int? Words, int? Errors, List<DeductionTier> Tiers, decimal? MaxDeduction);
 public record GradePreviewRequest(decimal Percentage, List<GradeBoundary> GradeKey, GradingSystem System, decimal Deduction);
+public record ExpectationHorizonRequest(int TaskNumber, string Text);
 public record CreateExamTaskDto(string Name, decimal MaxPoints);
 public record CreateExamRequest(string ClassId, string Title, DateOnly Date, List<CreateExamTaskDto> Tasks);
 public record RecalculateRequest(GradingProfile? NewProfile);
 public record ArchiveExamRequest(bool? Archived);
 public record SaveCoverSheetRequest(string Subject, string Instructions, bool UseTemplateLogo, bool ShowGradeKey,
     bool ShowDeductionRules, bool ShowWordCount, List<CoverSheetTask> Tasks, List<string> OperatorIds,
-    string? DeductionNotice = null, bool SaveDeductionNotice = false, bool SaveEarnedPoints = false);
+    string? DeductionNotice = null, bool SaveDeductionNotice = false, bool SaveEarnedPoints = false, bool? ShowErrorCount = null, bool? ShowErrorQuotient = null, bool? ShowGradeDeduction = null);
 
 #endregion
 

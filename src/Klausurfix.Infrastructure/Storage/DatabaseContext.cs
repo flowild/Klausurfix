@@ -150,7 +150,7 @@ public class DatabaseContext
     // point rolls back both the deletion and all inserted rows.
     public void ReplaceFromBackup(BackupPayload payload, bool validateProfiles = true)
     {
-        if (payload.Version is not (1 or 2 or 3 or 4 or 5) || payload.Schulformen == null || payload.Classes == null ||
+        if (payload.Version is not (1 or 2 or 3 or 4 or 5 or 6) || payload.Schulformen == null || payload.Classes == null ||
             payload.Students == null || payload.Exams == null)
             throw new InvalidOperationException("Ungültige Sicherungsdaten.");
         if (validateProfiles) foreach (var sf in payload.Schulformen) sf.Profile.Validate();

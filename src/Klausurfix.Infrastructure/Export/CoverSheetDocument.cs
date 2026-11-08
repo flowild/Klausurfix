@@ -25,6 +25,7 @@ public record CoverSheetDocument
     public required string DefaultDeductionNotice { get; init; }
     public required string DeductionNotice { get; init; }
     public required List<CoverSheetDocumentTask> Tasks { get; init; }
+    public required List<string> AdditionalFields { get; init; }
     public const string WordCountHint = "Zählen Sie bitte am Ende der Klausur Ihre geschriebenen Wörter!";
     public const string WordCountField = "Anzahl Wörter: ____________________";
     public const string NameField = "Name:___________________";
@@ -49,6 +50,7 @@ public record CoverSheetDocument
         var boundaries = profile.GradeKey.OrderByDescending(b => b.MinPercentage).ToList();
         return new()
         {
+            AdditionalFields = AdditionalFieldsFor(settings, profile),
             IsSaved = exam.CoverSheet != null,
             IsArchived = exam.IsArchived,
             Settings = settings,
@@ -78,6 +80,24 @@ public record CoverSheetDocument
         };
     }
 
+    private static List<string> AdditionalFieldsFor(CoverSheet settings, GradingProfile profile)
+    {
+        var fields = new List<string>();
+        if (settings.ShowErrorCount) fields.Add("Anzahl Fehler: ______");
+        if (settings.ShowErrorQuotient) fields.Add("Fehlerquotient: ______");
+        if (settings.ShowGradeDeduction)
+        {
+            var unit = profile.DeductionUnit switch
+            {
+                DeductionUnit.Notenpunkte => "Notenpunkte",
+                DeductionUnit.Schulnoten => "Schulnoten",
+                DeductionUnit.ProzentDerGesamtpunkte => "% der Gesamtpunkte",
+                _ => throw new InvalidOperationException("Unbekannte Abzugseinheit.")
+            };
+            fields.Add($"Abzug ({unit}): ______");
+        }
+        return fields;
+    }
     private static string FormatWholePercentageRange(decimal minimum, decimal? nextMinimum)
     {
         var lower = decimal.Ceiling(minimum);

@@ -11,33 +11,6 @@ using DocumentFormat.OpenXml.Wordprocessing;
 public class ExportTests
 {
     [Fact]
-    public void ReportsIncludeIndividualThresholdsEvenForIncompleteEntries()
-    {
-        var sample = CreateSampleExam();
-        var exam = sample with
-        {
-            GradingProfileSnapshot = GradingProfile.BeruflichesGymnasium() with { MaxDeduction = 1m },
-            StudentEntries = new() {
-                sample.StudentEntries[0] with { WordCount = 600, ErrorCount = null },
-                sample.StudentEntries[1] with { WordCount = 0 } }
-        };
-        using var stream = new MemoryStream(new DocxExportService().GenerateExamDocument(exam));
-        using var document = WordprocessingDocument.Open(stream, false);
-        var tables = document.MainDocumentPart!.Document!.Body!.Elements<Table>().ToList();
-        var rows = tables[1].Elements<TableRow>().ToList();
-        Assert.Contains("18: -1 NP", rows[1].InnerText);
-        Assert.DoesNotContain("36:", rows[1].InnerText);
-        Assert.Contains("Wortzahl fehlt oder ist 0", rows[2].InnerText);
-        Assert.Empty(new OpenXmlValidator().Validate(document));
-        Assert.NotEmpty(new PdfExportService().GenerateExamReport(exam));
-        var percent = exam with { GradingProfileSnapshot = GradingProfile.FachschuleSozialwesen(),
-            StudentEntries = new() { sample.StudentEntries[0] with { WordCount = 100 } } };
-        using var percentStream = new MemoryStream(new DocxExportService().GenerateExamDocument(percent));
-        using var percentDocument = WordprocessingDocument.Open(percentStream, false);
-        Assert.Contains("2: -1 %; 4: -3 %; 6: -6 %", percentDocument.MainDocumentPart!.Document!.Body!.InnerText);
-    }
-
-    [Fact]
     public void ReportsIncludeTaskAdditionAndItsSum()
     {
         var sample = CreateSampleExam();
@@ -81,7 +54,7 @@ public class ExportTests
     }
 
     [Fact]
-    public void Docx_GradeDistributionIsHorizontalAndIncludesTheRules()
+    public void Docx_GradeDistributionIsHorizontalWithoutThresholdsOrRules()
     {
         var exam = CreateSampleExam() with { GradingProfileSnapshot = GradingProfile.BeruflichesGymnasium() };
         var bytes = new DocxExportService().GenerateExamDocument(exam);
@@ -90,15 +63,15 @@ public class ExportTests
         var body = document.MainDocumentPart?.Document?.Body;
         Assert.NotNull(body);
         var tables = body.Elements<Table>().ToList();
-        Assert.Equal(3, tables.Count);
-        var rows = tables[2].Elements<TableRow>().ToList();
+        Assert.Equal(2, tables.Count);
+        var rows = tables[1].Elements<TableRow>().ToList();
         Assert.Equal(2, rows.Count);
         Assert.Equal(17, rows[0].Elements<TableCell>().Count());
         Assert.Equal(17, rows[1].Elements<TableCell>().Count());
         Assert.Equal("15", rows[0].Elements<TableCell>().Skip(1).First().InnerText);
         Assert.Equal("0", rows[0].Elements<TableCell>().Last().InnerText);
-        Assert.Contains("Fehlerquotient", body.InnerText);
-        Assert.Contains("ab FQ 3", body.InnerText);
+        Assert.DoesNotContain("Fehlerschwellen", body.InnerText);
+        Assert.DoesNotContain("Angewandte Bewertungsregeln", body.InnerText);
         Assert.Empty(new OpenXmlValidator().Validate(document));
     }
 

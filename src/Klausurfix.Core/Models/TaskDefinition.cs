@@ -5,6 +5,7 @@ public record TaskDefinition
     public int TaskNumber { get; init; }
     public string Name { get; init; } = string.Empty;
     public decimal MaxPoints { get; init; }
+    public string ExpectationHorizon { get; init; } = "";
 
     public TaskDefinition() { }
 

@@ -92,9 +92,9 @@ Beide Notenskalen werden benötigt. Die folgenden Stufen gelten jeweils ab der g
 - Schülerliste, Bewertungsprofil, Notenschlüssel und Regeln für die jeweilige Klausur versioniert festhalten. Spätere Änderungen an Stammdaten dürfen bestehende Auswertungen nicht stillschweigend ändern.
 - Änderungen am Bewertungsprofil einer bestehenden Klausur nur als bewusste, nachvollziehbare Neuberechnung erlauben.
 - Pro Schüler und Aufgabe erreichte Punkte erfassen; zusätzlich Wortanzahl und Anzahl der Rechtschreibfehler pro Schüler und Klausur.
-- Aufgabenpunkte dürfen als Addition nichtnegativer ganzer Zahlen eingegeben werden. Die Summe darf die Höchstpunktzahl nicht überschreiten. Beim Bearbeiten die Rechnung, sonst die Summe anzeigen; Rechnung verschlüsselt speichern, sichern und in PDF- und DOCX-Auswertung mit Summe ausgeben. Vorhandene dezimale Punkte bleiben erhalten. Neue Sicherungen mit Rechnungen verwenden Datenversion 5; ältere Versionen 1 bis 4 bleiben lesbar.
+- Aufgabenpunkte dürfen als Addition nichtnegativer ganzer Zahlen eingegeben werden. Die Summe darf die Höchstpunktzahl nicht überschreiten. Beim Bearbeiten die Rechnung, sonst die Summe anzeigen; Rechnung verschlüsselt speichern, sichern und in PDF- und DOCX-Auswertung mit Summe ausgeben. Vorhandene dezimale Punkte bleiben erhalten. Neue Sicherungen verwenden Datenversion 6 und enthalten Rechnungen sowie Erwartungshorizonte; ältere Versionen 1 bis 5 bleiben lesbar.
 - Nach Eingabe einer positiven Wortanzahl die Fehlerschwellen des gespeicherten Klausurprofils in der Eingabetabelle anzeigen: je erreichbarer Stufe die erste ganze Fehlerzahl und den Abzug, etwa „24: -1 NP“. Den anfänglichen Bereich ohne Abzug auslassen; eine spätere Stufe ohne Abzug anzeigen. Einheit und gegebenenfalls Abzugsbegrenzung dynamisch aus dem Profil übernehmen. Die Anzeige zentrieren und auch bei unvollständigen oder archivierten Einträgen bereitstellen.
-- Eingaben automatisch lokal speichern und den Speicherstatus anzeigen. Ungespeicherte Eingaben dürfen nicht als gespeichert erscheinen.
+- Eingaben automatisch lokal speichern und den Speicherstatus anzeigen. Ungespeicherte Eingaben dürfen nicht als gespeichert erscheinen. Unter der Eingabetabelle je Aufgabe einen verschlüsselt gespeicherten Erwartungshorizont anbieten; archivierte Klausuren bleiben schreibgeschützt.
 - Klausuren in einer eigenen Archivansicht anzeigen und als archiviert kennzeichnen. Archivierte Klausuren einschließlich Eingabetabelle, Bewertung und Deckblatt sind bis zur Wiederherstellung schreibgeschützt; dies auch im Backend durchsetzen. Lesen und Export bleiben möglich. Archivstatus und Deckblätter in Sicherungen erhalten.
 
 ### Klausurendeckblätter
@@ -149,8 +149,7 @@ Beide Notenskalen werden benötigt. Die folgenden Stufen gelten jeweils ab der g
 - Je Klausur ein gemeinsames, ansprechend gestaltetes Dokument als PDF oder echtes DOCX herunterladen können.
 - Keine Einzelblätter pro Schüler erstellen.
 - Enthalten sind Klausurtitel, Datum, Klasse/Schulform, Aufgabenhöchstpunkte, Schülernamen, Punkte je Aufgabe, Gesamtpunkte, Wortanzahl, Rechtschreibfehler, Fehlerquotient, Ausgangsnote, Abzug, Endnote, Klassendurchschnitt und Notenspiegel. Bei prozentualem Punkteabzug auch Abzugsprozentsatz, Abzugspunkte und bereinigte Punkte ausgeben.
-- Verwendete Bewertungsregeln und Anzahl gewerteter Ergebnisse dokumentieren; unvollständige Ergebnisse kennzeichnen.
-- Fehlerschwellen je Schüler anhand der Wortzahl und des gespeicherten Klausurprofils in PDF und DOCX angeben; auch unvollständige Ergebnisse berücksichtigen und fehlende oder null Wortzahlen kennzeichnen.
+- Anzahl gewerteter und nicht gewerteter Ergebnisse dokumentieren; unvollständige Ergebnisse kennzeichnen. Fehlerschwellen und angewandte Bewertungsregeln nicht in PDF und DOCX ausgeben.
 - Wiederholte Tabellenüberschriften, Seitenzahlen, lesbare Schrift und sinnvolle Seitenumbrüche; breite Tabellen bei Bedarf im Querformat.
 - PDF und DOCX aus demselben fachlichen Auswertungsmodell erstellen. Alle Ressourcen lokal mitliefern.
 - Dokumentexporte sind lesbare Ausgaben und keine vollständigen Datensicherungen. Temporäre Exportdateien vermeiden oder unmittelbar bereinigen.
