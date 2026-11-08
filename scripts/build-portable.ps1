@@ -3,6 +3,7 @@ param(
     [switch]$UpdateOnly,
     [switch]$KeepUpdatePackage,
     [switch]$SingleFileBackend,
+    [switch]$BuildNewStarter,
     [ValidateSet('win-arm64', 'win-x64')][string[]]$Runtimes = @('win-arm64', 'win-x64')
 )
 
@@ -15,6 +16,7 @@ $launcherPath = Join-Path $projectRoot 'src\Klausurfix.Launcher\Klausurfix.Launc
 $nugetRoot = Join-Path $env:USERPROFILE '.nuget\packages'
 $packageBuilder = Join-Path $projectRoot 'update-entwicklung\Paketbau\Paketbau.csproj'
 $assistantBuilder = Join-Path $projectRoot 'update-entwicklung\erzeuge-pruef-assistent.ps1'
+. (Join-Path $PSScriptRoot 'reuse-arm64-starter.ps1')
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
 foreach ($rid in $runtimes) {
     $names = if ($UpdateOnly) { if ($KeepUpdatePackage) { @("Klausurfix-Update-$packageVersion-$rid.zip", "Klausurfix-Update-$packageVersion-$rid.exe") } else { @("Klausurfix-Update-$packageVersion-$rid.exe") } } else { @("Klausurfix-$packageVersion-$rid.zip", "Klausurfix-Update-$packageVersion-$rid.zip", "Klausurfix-Update-$packageVersion-$rid.exe", "Klausurfix-Setup-$packageVersion-$rid.exe") }
@@ -35,10 +37,16 @@ try {
         New-Item -ItemType Directory -Force -Path $appDir | Out-Null
         $backendOptions = @()
         if ($SingleFileBackend) { $backendOptions = @('-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true') }
+        if ($rid -eq 'win-arm64' -and -not $BuildNewStarter) {
+            Copy-VerifiedArm64Starter -ProjectRoot $projectRoot -Destination (Join-Path $packageRoot 'Klausurfix.exe')
+        }
         & dotnet publish $projectPath -c Release -r $rid --self-contained true -o $appDir --artifacts-path $buildDir -p:Version=$packageVersion -p:DebugType=None -p:NuGetAudit=false @backendOptions
         if ($LASTEXITCODE -ne 0) { throw "Build fehlgeschlagen: $rid" }
-        & dotnet publish $launcherPath -c Release -r $rid --self-contained true -o $packageRoot --artifacts-path (Join-Path $workRoot "launcher-$rid") -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:Version=$packageVersion -p:DebugType=None -p:NuGetAudit=false
-        if ($LASTEXITCODE -ne 0) { throw "Starter-Build fehlgeschlagen: $rid" }
+        if ($rid -ne 'win-arm64' -or $BuildNewStarter) {
+            if ($rid -eq 'win-arm64') { Write-Warning 'Neuer ARM64-Starter: Auf dem Surface und mit Smart App Control noch nicht geprüft.' }
+            & dotnet publish $launcherPath -c Release -r $rid --self-contained true -o $packageRoot --artifacts-path (Join-Path $workRoot "launcher-$rid") -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:Version=$packageVersion -p:DebugType=None -p:NuGetAudit=false
+            if ($LASTEXITCODE -ne 0) { throw "Starter-Build fehlgeschlagen: $rid" }
+        }
         [System.IO.File]::WriteAllText((Join-Path $packageRoot 'update-starter-v1.txt'), 'Klausurfix update starter v1', [System.Text.Encoding]::ASCII)
         [System.IO.File]::WriteAllText((Join-Path $packageRoot 'basis-version.txt'), "$packageVersion|$rid", [System.Text.Encoding]::ASCII)
         $licensesDir = Join-Path $packageRoot 'Lizenzen'
